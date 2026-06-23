@@ -1,0 +1,654 @@
+import 'dart:io';
+
+import '../models/file_change.dart';
+import '../models/git_branch.dart';
+import '../models/git_commit.dart';
+
+class GitException implements Exception {
+  final String message;
+  GitException(this.message);
+  @override
+  String toString() => message;
+}
+
+/// Thin wrapper around the system `git` CLI.
+class GitService {
+  final String workingDir;
+  GitService(this.workingDir);
+
+  static const _us = '\x1f'; // unit separator
+  static const _rs = '\x1e'; // record separator
+
+  Future<ProcessResult> _run(List<String> args,
+      {Map<String, String>? env}) async {
+    try {
+      return await Process.run(
+        'git',
+        args,
+        workingDirectory: workingDir,
+        runInShell: Platform.isWindows,
+        environment: env,
+        stdoutEncoding: SystemEncoding(),
+        stderrEncoding: SystemEncoding(),
+      );
+    } on ProcessException catch (e) {
+      throw GitException('Failed to run git: ${e.message}');
+    }
+  }
+
+  /// Runs a mutating command; throws on failure with stderr.
+  Future<String> _runOrThrow(List<String> args,
+      {Map<String, String>? env}) async {
+    final r = await _run(args, env: env);
+    if (r.exitCode != 0) {
+      final err = (r.stderr as String).trim();
+      final out = (r.stdout as String).trim();
+      throw GitException(err.isNotEmpty ? err : (out.isNotEmpty ? out : 'git ${args.join(' ')} failed'));
+    }
+    return r.stdout as String;
+  }
+
+  static Future<bool> isGitRepo(String path) async {
+    try {
+      final r = await Process.run(
+        'git',
+        ['rev-parse', '--is-inside-work-tree'],
+        workingDirectory: path,
+        runInShell: Platform.isWindows,
+      );
+      return r.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<String> currentBranch() async {
+    final r = await _run(['rev-parse', '--abbrev-ref', 'HEAD']);
+    if (r.exitCode != 0) return 'HEAD';
+    return (r.stdout as String).trim();
+  }
+
+  // ---------------------------------------------------------------- refs ----
+  Future<List<GitRef>> refs() async {
+    final fmt = [
+      '%(refname)',
+      '%(objectname)',
+      '%(HEAD)',
+      '%(upstream:short)',
+      '%(upstream:track)',
+    ].join(_us);
+    final r = await _run([
+      'for-each-ref',
+      '--format=$fmt',
+      'refs/heads',
+      'refs/remotes',
+      'refs/tags',
+    ]);
+    if (r.exitCode != 0) return [];
+
+    final refs = <GitRef>[];
+    for (final line in (r.stdout as String).split('\n')) {
+      if (line.trim().isEmpty) continue;
+      final f = line.split(_us);
+      if (f.length < 5) continue;
+      final fullName = f[0];
+      final hash = f[1];
+      final isHead = f[2] == '*';
+      final upstream = f[3].isEmpty ? null : f[3];
+      final track = f[4];
+
+      var ahead = 0, behind = 0;
+      final aMatch = RegExp(r'ahead (\d+)').firstMatch(track);
+      final bMatch = RegExp(r'behind (\d+)').firstMatch(track);
+      if (aMatch != null) ahead = int.parse(aMatch.group(1)!);
+      if (bMatch != null) behind = int.parse(bMatch.group(1)!);
+
+      if (fullName.startsWith('refs/heads/')) {
+        refs.add(GitRef(
+          name: fullName.substring('refs/heads/'.length),
+          kind: RefKind.localBranch,
+          isCurrent: isHead,
+          upstream: upstream,
+          ahead: ahead,
+          behind: behind,
+          targetHash: hash,
+        ));
+      } else if (fullName.startsWith('refs/remotes/')) {
+        final shortName = fullName.substring('refs/remotes/'.length);
+        if (shortName.endsWith('/HEAD')) continue;
+        refs.add(GitRef(
+          name: shortName,
+          kind: RefKind.remoteBranch,
+          targetHash: hash,
+        ));
+      } else if (fullName.startsWith('refs/tags/')) {
+        refs.add(GitRef(
+          name: fullName.substring('refs/tags/'.length),
+          kind: RefKind.tag,
+          targetHash: hash,
+        ));
+      }
+    }
+    return refs;
+  }
+
+  /// Stash entries as graph nodes (one per `stash@{N}`). Each node's `parents`
+  /// is its base commit (the first parent — the HEAD it was stashed on); the
+  /// internal index/untracked parents are dropped so the graph stays clean.
+  Future<List<GitCommit>> stashCommits() async {
+    final fmt = ['%H', '%P', '%an', '%ae', '%aI', '%gs'].join(_us);
+    final r = await _run(['stash', 'list', '--format=$fmt']);
+    if (r.exitCode != 0) return [];
+    final out = <GitCommit>[];
+    var index = 0;
+    for (final line in (r.stdout as String).split('\n')) {
+      if (line.trim().isEmpty) continue;
+      final f = line.split(_us);
+      if (f.length < 6) {
+        index++;
+        continue;
+      }
+      final allParents =
+          f[1].trim().isEmpty ? <String>[] : f[1].trim().split(' ');
+      final base = allParents.isEmpty ? <String>[] : [allParents.first];
+      DateTime date;
+      try {
+        date = DateTime.parse(f[4]).toLocal();
+      } catch (_) {
+        date = DateTime.fromMillisecondsSinceEpoch(0);
+      }
+      // Trim the auto-generated ": <sha> <subject>" tail from "WIP on X: ..."
+      // so the node reads "WIP on <branch>" like other Git clients.
+      var msg = f[5];
+      final m = RegExp(r'^(WIP on [^:]+):').firstMatch(msg);
+      if (m != null) msg = m.group(1)!;
+      out.add(GitCommit(
+        hash: f[0],
+        parents: base,
+        author: f[2],
+        authorEmail: f[3],
+        date: date,
+        subject: msg,
+        body: '',
+        refs: const [],
+        isStash: true,
+        stashIndex: index,
+      ));
+      index++;
+    }
+    return out;
+  }
+
+  Future<List<GitRef>> stashes() async {
+    final r = await _run(['stash', 'list', '--format=%gd$_us%H$_us%s']);
+    if (r.exitCode != 0) return [];
+    final out = <GitRef>[];
+    for (final line in (r.stdout as String).split('\n')) {
+      if (line.trim().isEmpty) continue;
+      final f = line.split(_us);
+      out.add(GitRef(
+        name: f.length > 2 ? f[2] : (f.isNotEmpty ? f[0] : ''),
+        kind: RefKind.stash,
+        targetHash: f.length > 1 ? f[1] : null,
+      ));
+    }
+    return out;
+  }
+
+  // ------------------------------------------------------------- commits ----
+  /// [excludeRefs] are full ref patterns (e.g. refs/heads/foo) to hide.
+  Future<List<GitCommit>> log(
+      {int limit = 400, List<String> excludeRefs = const []}) async {
+    final fmt = [
+      '%H',
+      '%P',
+      '%an',
+      '%ae',
+      '%aI',
+      '%D',
+      '%s',
+      '%b',
+    ].join(_us);
+    final r = await _run([
+      'log',
+      '--date-order',
+      for (final ref in excludeRefs) '--exclude=$ref',
+      '--branches',
+      '--remotes',
+      '--tags',
+      '-n',
+      '$limit',
+      '--pretty=format:$fmt$_rs',
+    ]);
+    if (r.exitCode != 0) return [];
+
+    final commits = <GitCommit>[];
+    for (final record in (r.stdout as String).split(_rs)) {
+      final rec = record.trim();
+      if (rec.isEmpty) continue;
+      final f = rec.split(_us);
+      if (f.length < 7) continue;
+      final parents =
+          f[1].trim().isEmpty ? <String>[] : f[1].trim().split(' ');
+      DateTime date;
+      try {
+        date = DateTime.parse(f[4]).toLocal();
+      } catch (_) {
+        date = DateTime.fromMillisecondsSinceEpoch(0);
+      }
+      final refs = f[5]
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      commits.add(GitCommit(
+        hash: f[0],
+        parents: parents,
+        author: f[2],
+        authorEmail: f[3],
+        date: date,
+        subject: f[6],
+        body: f.length > 7 ? f.sublist(7).join(_us).trim() : '',
+        refs: refs,
+      ));
+    }
+    return commits;
+  }
+
+  // -------------------------------------------------------------- status ----
+  Future<List<FileChange>> status() async {
+    final r = await _run(['status', '--porcelain', '--untracked-files=all']);
+    if (r.exitCode != 0) return [];
+    final changes = <FileChange>[];
+    for (final line in (r.stdout as String).split('\n')) {
+      if (line.length < 3) continue;
+      final x = line[0];
+      final y = line[1];
+      var path = line.substring(3).trim();
+      if (path.contains(' -> ')) path = path.split(' -> ').last;
+      path = _unquote(path);
+
+      if (x == '?' && y == '?') {
+        changes.add(FileChange(
+            path: path, type: ChangeType.untracked, staged: false));
+        continue;
+      }
+      if (_isConflict(x, y)) {
+        changes.add(FileChange(
+            path: path, type: ChangeType.conflicted, staged: false));
+        continue;
+      }
+      if (x != ' ' && x != '?') {
+        changes.add(
+            FileChange(path: path, type: _mapType(x), staged: true));
+      }
+      if (y != ' ' && y != '?') {
+        changes.add(
+            FileChange(path: path, type: _mapType(y), staged: false));
+      }
+    }
+    return changes;
+  }
+
+  bool _isConflict(String x, String y) {
+    final c = '$x$y';
+    return c == 'DD' ||
+        c == 'AA' ||
+        c == 'UU' ||
+        x == 'U' ||
+        y == 'U';
+  }
+
+  ChangeType _mapType(String c) {
+    switch (c) {
+      case 'A':
+        return ChangeType.added;
+      case 'D':
+        return ChangeType.deleted;
+      case 'R':
+        return ChangeType.renamed;
+      case 'C':
+        return ChangeType.added;
+      default:
+        return ChangeType.modified;
+    }
+  }
+
+  String _unquote(String s) {
+    if (s.startsWith('"') && s.endsWith('"') && s.length >= 2) {
+      return s.substring(1, s.length - 1).replaceAll(r'\"', '"');
+    }
+    return s;
+  }
+
+  /// Files touched by a single commit (`git show --name-status`).
+  Future<List<FileChange>> commitFiles(String hash) async {
+    final r = await _run(
+        ['show', '--name-status', '--format=', '-M', '--no-color', hash]);
+    if (r.exitCode != 0) return [];
+    final out = <FileChange>[];
+    for (final line in (r.stdout as String).split('\n')) {
+      if (line.trim().isEmpty) continue;
+      final parts = line.split('\t');
+      if (parts.length < 2) continue;
+      final code = parts[0];
+      final path = _unquote(parts.last);
+      ChangeType type;
+      if (code.startsWith('A')) {
+        type = ChangeType.added;
+      } else if (code.startsWith('D')) {
+        type = ChangeType.deleted;
+      } else if (code.startsWith('R')) {
+        type = ChangeType.renamed;
+      } else {
+        type = ChangeType.modified;
+      }
+      out.add(FileChange(path: path, type: type, staged: true));
+    }
+    return out;
+  }
+
+  /// Returns a unified diff for a single file (staged or working tree).
+  Future<String> diff(String path, {required bool staged}) =>
+      rawFileDiff(path, staged: staged);
+
+  /// Raw unified diff for one file (`git diff [--cached] --no-color -- path`).
+  Future<String> rawFileDiff(String path, {required bool staged}) async {
+    final args = [
+      'diff',
+      if (staged) '--cached',
+      '--no-color',
+      '--',
+      path,
+    ];
+    final r = await _run(args);
+    return r.stdout as String;
+  }
+
+  /// Reads a working-tree file as text (for File View / editing).
+  Future<String> readFileContent(String path) async {
+    final f = File('$workingDir${Platform.pathSeparator}$path');
+    if (!await f.exists()) return '';
+    return f.readAsString();
+  }
+
+  /// Overwrites a working-tree file with [content] (used by the editor).
+  Future<void> writeFileContent(String path, String content) async {
+    final f = File('$workingDir${Platform.pathSeparator}$path');
+    await f.writeAsString(content);
+  }
+
+  /// Applies a patch (single hunk or whole file) via `git apply`.
+  /// [cached] stages it; [reverse] reverts it (e.g. discard a working hunk).
+  Future<void> applyPatch(String patch,
+      {bool cached = false, bool reverse = false}) async {
+    final tmp = await File(
+            '${Directory.systemTemp.path}${Platform.pathSeparator}lgm_${DateTime.now().microsecondsSinceEpoch}.patch')
+        .create();
+    try {
+      await tmp.writeAsString(patch);
+      final r = await _run([
+        'apply',
+        if (cached) '--cached',
+        if (reverse) '--reverse',
+        '--whitespace=nowarn',
+        tmp.path,
+      ]);
+      if (r.exitCode != 0) {
+        final err = (r.stderr as String).trim();
+        throw GitException(err.isEmpty ? 'Failed to apply patch' : err);
+      }
+    } finally {
+      try {
+        await tmp.delete();
+      } catch (_) {}
+    }
+  }
+
+  // -------------------------------------------------------------- actions ---
+  Future<void> stage(String path) => _runOrThrow(['add', '--', path]);
+  Future<void> stageAll() => _runOrThrow(['add', '-A']);
+  Future<void> unstage(String path) =>
+      _runOrThrow(['restore', '--staged', '--', path]);
+  Future<void> unstageAll() => _runOrThrow(['reset']);
+  Future<void> discard(String path) =>
+      _runOrThrow(['checkout', '--', path]);
+
+  /// Discards all unstaged changes to tracked files (leaves untracked files).
+  Future<void> discardAllChanges() => _runOrThrow(['checkout', '--', '.']);
+
+  // ---------------------------------------------- commit-level operations ---
+  /// Editor-suppressing environment so non-interactive rebases never hang.
+  static const _noEditorEnv = {
+    'GIT_EDITOR': 'true',
+    'GIT_SEQUENCE_EDITOR': 'true',
+  };
+
+  Future<void> checkoutCommit(String sha) => _runOrThrow(['checkout', sha]);
+
+  Future<void> createBranchAt(String name, String sha) =>
+      _runOrThrow(['checkout', '-b', name, sha]);
+
+  /// mode is 'soft', 'mixed' or 'hard'.
+  Future<void> resetTo(String sha, String mode) =>
+      _runOrThrow(['reset', '--$mode', sha]);
+
+  Future<void> revertCommit(String sha) =>
+      _runOrThrow(['revert', '--no-edit', sha], env: _noEditorEnv);
+
+  Future<String> commitMessage(String sha) async {
+    final r = await _run(['log', '-1', '--format=%B', sha]);
+    return (r.stdout as String).trimRight();
+  }
+
+  Future<void> amendMessage(String message) =>
+      _runOrThrow(['commit', '--amend', '-m', message]);
+
+  /// Drops [sha] from history by rebasing its children onto its parent.
+  Future<void> dropCommit(String sha) =>
+      _runOrThrow(['rebase', '--onto', '$sha^', sha], env: _noEditorEnv);
+
+  Future<void> setUpstream(String branch, String upstream) =>
+      _runOrThrow(['branch', '--set-upstream-to=$upstream', branch]);
+
+  Future<void> renameBranch(String oldName, String newName) =>
+      _runOrThrow(['branch', '-m', oldName, newName]);
+
+  Future<void> deleteBranch(String name, {bool force = false}) =>
+      _runOrThrow(['branch', force ? '-D' : '-d', name]);
+
+  Future<void> deleteRemoteBranch(String remote, String name) =>
+      _runOrThrow(['push', remote, '--delete', name]);
+
+  Future<void> createTag(String name, String sha) =>
+      _runOrThrow(['tag', name, sha]);
+
+  Future<void> createAnnotatedTag(String name, String message, String sha) =>
+      _runOrThrow(['tag', '-a', name, '-m', message, sha]);
+
+  /// Writes a `0001-*.patch` for [sha] into the repo root; returns its path.
+  Future<String> formatPatch(String sha) async {
+    final out = await _runOrThrow(['format-patch', '-1', sha, '-o', '.']);
+    return out.trim();
+  }
+
+  Future<void> applyPatchFile(String path) =>
+      _runOrThrow(['apply', '--whitespace=nowarn', path]);
+
+  Future<String> remoteUrl([String remote = 'origin']) async {
+    final r = await _run(['remote', 'get-url', remote]);
+    if (r.exitCode != 0) return '';
+    return (r.stdout as String).trim();
+  }
+
+  // ----------------------------------------------- branch-level operations ---
+  Future<void> merge(String branch) =>
+      _runOrThrow(['merge', '--no-edit', branch], env: _noEditorEnv);
+
+  Future<void> rebaseOnto(String branch) =>
+      _runOrThrow(['rebase', branch], env: _noEditorEnv);
+
+  /// Interactive rebase, auto-accepting the default todo (non-interactive env).
+  Future<void> interactiveRebase(String branch) =>
+      _runOrThrow(['rebase', '-i', branch], env: _noEditorEnv);
+
+  Future<void> cherryPick(String sha) =>
+      _runOrThrow(['cherry-pick', sha], env: _noEditorEnv);
+
+  // ------------------------------------------------------- stash operations ---
+  Future<void> stashApply(int index) =>
+      _runOrThrow(['stash', 'apply', 'stash@{$index}']);
+  Future<void> stashPopAt(int index) =>
+      _runOrThrow(['stash', 'pop', 'stash@{$index}']);
+  Future<void> stashDrop(int index) =>
+      _runOrThrow(['stash', 'drop', 'stash@{$index}']);
+
+  /// The patch text for a stash (for "Share as Cloud Patch").
+  Future<String> stashPatch(int index) async {
+    final r = await _run(['stash', 'show', '-p', 'stash@{$index}']);
+    return r.stdout as String;
+  }
+
+  /// Combined patch of all working-tree changes vs HEAD (staged + unstaged
+  /// tracked files) — used for "Cloud Patch".
+  Future<String> workingPatch() async {
+    final r = await _run(['diff', 'HEAD']);
+    return r.stdout as String;
+  }
+
+  /// Git has no native stash-reword, so re-store the stash commit under a new
+  /// message (it moves to the top of the stash list).
+  Future<void> editStashMessage(int index, String message) async {
+    final shaRes = await _run(['rev-parse', 'stash@{$index}']);
+    if (shaRes.exitCode != 0) {
+      throw GitException('Could not resolve stash.');
+    }
+    final sha = (shaRes.stdout as String).trim();
+    await _runOrThrow(['stash', 'drop', 'stash@{$index}']);
+    await _runOrThrow(['stash', 'store', '-m', message, sha]);
+  }
+
+  /// Adds a new worktree at [path] checked out to [ref] (branch name or sha).
+  Future<void> worktreeAdd(String path, String ref) =>
+      _runOrThrow(['worktree', 'add', path, ref]);
+
+  /// The full patch text for a commit (`git format-patch -1 --stdout`).
+  Future<String> commitPatchText(String sha) async {
+    final r = await _run(['format-patch', '-1', '--stdout', sha]);
+    return r.stdout as String;
+  }
+
+  /// Reorders [sha] one position older (swaps it with its parent) on [branch].
+  /// Rewinds safely (aborts cherry-pick, restores branch) on any failure.
+  Future<void> moveCommitDown(String sha, String branch) async {
+    final parent = await _run(['rev-parse', '$sha^']);
+    if (parent.exitCode != 0) {
+      throw GitException('This commit has no parent to move past.');
+    }
+    final grand = await _run(['rev-parse', '$sha^^']);
+    if (grand.exitCode != 0) {
+      throw GitException('Cannot move past the root commit.');
+    }
+    final p = (parent.stdout as String).trim();
+    final g = (grand.stdout as String).trim();
+    final childrenOut = await _runOrThrow(['rev-list', '--reverse', '$sha..$branch']);
+    final children = childrenOut
+        .split('\n')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    try {
+      await _runOrThrow(['checkout', '--detach', g]);
+      await _runOrThrow(['cherry-pick', sha], env: _noEditorEnv);
+      await _runOrThrow(['cherry-pick', p], env: _noEditorEnv);
+      for (final c in children) {
+        await _runOrThrow(['cherry-pick', c], env: _noEditorEnv);
+      }
+      final head = (await _run(['rev-parse', 'HEAD']).then(
+          (r) => (r.stdout as String).trim()));
+      await _runOrThrow(['checkout', '-B', branch, head]);
+    } catch (e) {
+      await _run(['cherry-pick', '--abort']);
+      await _run(['checkout', '-f', branch]);
+      throw GitException(
+          'Could not reorder (likely a conflict). Repository restored. $e');
+    }
+  }
+
+  /// Opens [url] in the default browser.
+  static Future<void> openUrl(String url) async {
+    if (Platform.isWindows) {
+      await Process.run('cmd', ['/c', 'start', '', url], runInShell: true);
+    } else if (Platform.isMacOS) {
+      await Process.run('open', [url]);
+    } else {
+      await Process.run('xdg-open', [url]);
+    }
+  }
+
+  Future<void> commit(String summary,
+      {String description = '', bool amend = false}) async {
+    final args = ['commit'];
+    if (amend) args.add('--amend');
+    args.addAll(['-m', summary]);
+    if (description.trim().isNotEmpty) args.addAll(['-m', description]);
+    await _runOrThrow(args);
+  }
+
+  /// Suppresses interactive credential prompts (the Git Credential Manager
+  /// GUI) for network ops when we are supplying our own auth.
+  static const _noPromptEnv = {
+    'GIT_TERMINAL_PROMPT': '0',
+    'GCM_INTERACTIVE': 'never',
+  };
+
+  /// `-c` overrides that inject an Azure DevOps PAT as an HTTP auth header so
+  /// git authenticates non-interactively instead of invoking the credential
+  /// manager. Returns no overrides when [authHeader] is null (other remotes
+  /// keep using whatever credential helper the user has configured).
+  List<String> _authArgs(String? authHeader) => authHeader == null
+      ? const []
+      : ['-c', 'credential.interactive=false', '-c', 'http.extraHeader=$authHeader'];
+
+  Future<String> pull({String? authHeader}) => _runOrThrow(
+      [..._authArgs(authHeader), 'pull'],
+      env: authHeader != null ? _noPromptEnv : null);
+  Future<String> push({String? authHeader}) => _runOrThrow(
+      [..._authArgs(authHeader), 'push'],
+      env: authHeader != null ? _noPromptEnv : null);
+  Future<String> fetch({String? authHeader}) => _runOrThrow(
+      [..._authArgs(authHeader), 'fetch', '--all', '--prune'],
+      env: authHeader != null ? _noPromptEnv : null);
+  Future<void> checkout(String branch) => _runOrThrow(['checkout', branch]);
+  Future<void> createBranch(String name) =>
+      _runOrThrow(['checkout', '-b', name]);
+  Future<void> stashPush() => _runOrThrow(['stash', 'push']);
+  Future<void> stashPop() => _runOrThrow(['stash', 'pop']);
+
+  /// Clones [url] into [destination]; returns the created repo directory.
+  /// [userInfo] is a pre-encoded `user:secret` injected into the HTTPS URL for
+  /// non-interactive auth (provider-specific — see IntegrationService).
+  static Future<String> clone(String url, String destination,
+      {String? userInfo}) async {
+    final args = ['clone'];
+    if (userInfo != null && userInfo.isNotEmpty && url.startsWith('https://')) {
+      // Replace any existing userinfo with ours.
+      final authed = url.replaceFirst(
+          RegExp(r'^https://([^@/]*@)?'), 'https://$userInfo@');
+      args.add(authed);
+    } else {
+      args.add(url);
+    }
+    args.add(destination);
+    final r = await Process.run('git', args,
+        runInShell: Platform.isWindows,
+        environment: _noPromptEnv,
+        includeParentEnvironment: true,
+        stderrEncoding: SystemEncoding(),
+        stdoutEncoding: SystemEncoding());
+    if (r.exitCode != 0) {
+      throw GitException((r.stderr as String).trim());
+    }
+    return destination;
+  }
+}

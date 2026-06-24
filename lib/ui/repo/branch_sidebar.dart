@@ -57,11 +57,24 @@ class _BranchSidebarState extends State<BranchSidebar> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _topToggle(),
           Padding(
-            padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
+            padding: const EdgeInsets.fromLTRB(6, 10, 10, 4),
             child: Row(
               children: [
+                Tooltip(
+                  message: 'Collapse panel',
+                  child: InkWell(
+                    onTap: () =>
+                        context.read<LayoutState>().toggleSidebarCollapsed(),
+                    borderRadius: BorderRadius.circular(4),
+                    child: const Padding(
+                      padding: EdgeInsets.all(4),
+                      child: Icon(Icons.chevron_left,
+                          size: 18, color: AppColors.textMuted),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 const Text('Viewing',
                     style: TextStyle(
                         fontSize: 12, color: AppColors.textSecondary)),
@@ -267,57 +280,6 @@ class _BranchSidebarState extends State<BranchSidebar> {
     if (review.isNotEmpty) group('Awaiting My Review', review);
     group('All Pull Requests', filtered);
     return children;
-  }
-
-  Widget _topToggle() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
-      child: Row(
-        children: [
-          Tooltip(
-            message: 'Collapse panel',
-            child: InkWell(
-              onTap: () =>
-                  context.read<LayoutState>().toggleSidebarCollapsed(),
-              borderRadius: BorderRadius.circular(4),
-              child: const Padding(
-                padding: EdgeInsets.all(4),
-                child: Icon(Icons.chevron_left,
-                    size: 18, color: AppColors.textMuted),
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          _segToggle('List', Icons.list, true),
-        ],
-      ),
-    );
-  }
-
-  Widget _segToggle(String label, IconData icon, bool selected) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: selected ? AppColors.surfaceRaised : Colors.transparent,
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(
-            color: selected ? AppColors.border : Colors.transparent),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon,
-              size: 13,
-              color: selected ? AppColors.textPrimary : AppColors.textMuted),
-          const SizedBox(width: 5),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 12,
-                  color:
-                      selected ? AppColors.textPrimary : AppColors.textMuted)),
-        ],
-      ),
-    );
   }
 
 }

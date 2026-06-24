@@ -4,27 +4,28 @@ import 'package:flutter/material.dart';
 class AppColors {
   AppColors._();
 
-  // Surfaces
-  static const Color background = Color(0xFF12161C); // window background
-  static const Color surface = Color(0xFF181D25); // panels
-  static const Color surfaceAlt = Color(0xFF1E242E); // sidebars
-  static const Color surfaceRaised = Color(0xFF232A35); // cards / inputs
-  static const Color titleBar = Color(0xFF0E1218);
+  // Surfaces — neutral blue-grey dark (no colour cast), modern and clean.
+  static const Color background = Color(0xFF14181E); // window background
+  static const Color surface = Color(0xFF181D24); // panels
+  static const Color surfaceAlt = Color(0xFF1C222A); // sidebars
+  static const Color surfaceRaised = Color(0xFF232A33); // cards / inputs
+  static const Color titleBar = Color(0xFF0D1116);
 
   // Lines & dividers
   static const Color border = Color(0xFF2A323D);
-  static const Color borderSubtle = Color(0xFF21272F);
+  static const Color borderSubtle = Color(0xFF1E252D);
 
   // Text
   static const Color textPrimary = Color(0xFFE6EAF0);
-  static const Color textSecondary = Color(0xFF9AA6B5);
-  static const Color textMuted = Color(0xFF697483);
+  static const Color textSecondary = Color(0xFF9AA4B2);
+  static const Color textMuted = Color(0xFF687180);
 
-  // Accent
-  static const Color accent = Color(0xFF3B82F6); // blue
-  static const Color accentTeal = Color(0xFF14B8A6);
-  static const Color selection = Color(0xFF1D3A57);
-  static const Color selectionRow = Color(0xFF15324C);
+  // Accent — mint. [accent] is deep enough to keep white text readable;
+  // [accentTeal] is the brighter mint used for highlights/gradients.
+  static const Color accent = Color(0xFF14B8A6); // mint / teal
+  static const Color accentTeal = Color(0xFF2DD4BF); // bright mint
+  static const Color selection = Color(0xFF123F37); // mint-tinted selection
+  static const Color selectionRow = Color(0xFF0F3A32); // mint-tinted row
 
   // Status
   static const Color green = Color(0xFF4ADE80);
@@ -32,16 +33,16 @@ class AppColors {
   static const Color amber = Color(0xFFFBBF24);
   static const Color purple = Color(0xFFA78BFA);
 
-  // Graph lane colors (cycled per lane)
+  // Graph lane colors (cycled per lane) — lead with mint, keep variety.
   static const List<Color> lanes = [
-    Color(0xFF4ADE80), // green
+    Color(0xFF2DD4BF), // mint
+    Color(0xFF34D399), // emerald
     Color(0xFF60A5FA), // blue
     Color(0xFFA78BFA), // purple
-    Color(0xFFF472B6), // pink
     Color(0xFFFBBF24), // amber
+    Color(0xFFF472B6), // pink
     Color(0xFF22D3EE), // cyan
-    Color(0xFFFB7185), // rose
-    Color(0xFF34D399), // emerald
+    Color(0xFF4ADE80), // green
   ];
 }
 

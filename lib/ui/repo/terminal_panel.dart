@@ -11,9 +11,9 @@ import '../../theme/app_theme.dart';
 
 /// Terminal colour scheme matching the app's dark palette.
 const _termTheme = TerminalTheme(
-  cursor: Color(0xFFE6EAF0),
-  selection: Color(0x553B82F6),
-  foreground: Color(0xFFE6EAF0),
+  cursor: Color(0xFF2DD4BF),
+  selection: Color(0x552DD4BF),
+  foreground: Color(0xFFE8EDEA),
   background: Color(0xFF11151B),
   black: Color(0xFF11151B),
   red: Color(0xFFF87171),

@@ -11,6 +11,7 @@ import '../../state/layout_state.dart';
 import '../../state/repo_state.dart';
 import '../../theme/app_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/mint_leaf.dart';
 import 'commit_context_menu.dart';
 import 'repo_actions.dart';
 import 'sidebar_menus.dart';
@@ -423,7 +424,7 @@ class _CommitGraphViewState extends State<CommitGraphView> {
         );
     return Container(
       color: AppColors.surface,
-      padding: const EdgeInsets.fromLTRB(_rowHPad, 6, _rowHPad, 6),
+      padding: const EdgeInsets.fromLTRB(_rowHPad, 3, _rowHPad, 3),
       child: Row(
         children: _columns(
           gl,
@@ -585,10 +586,7 @@ class _WipRowState extends State<_WipRow> {
           children: _columns(
             gl,
             branch: const SizedBox.shrink(),
-            graph: CustomPaint(
-              painter: _WipDotPainter(gl.geom),
-              size: Size(gl.graphWidth, _rowHeight),
-            ),
+            graph: _WipNode(geom: gl.geom, graphWidth: gl.graphWidth),
             message: Padding(
               padding: const EdgeInsets.only(left: _cellLeftPad),
               child: Row(
@@ -1061,24 +1059,88 @@ class _DashedBoxPainter extends CustomPainter {
   bool shouldRepaint(covariant _DashedBoxPainter old) => old.color != color;
 }
 
-class _WipDotPainter extends CustomPainter {
+/// The WIP (working-tree) node: a faded mint leaf inside a dotted circle, with
+/// a dotted lane line dropping to the first real commit below.
+class _WipNode extends StatelessWidget {
   final _GraphGeom geom;
-  _WipDotPainter(this.geom);
+  final double graphWidth;
+  const _WipNode({required this.geom, required this.graphWidth});
+
+  @override
+  Widget build(BuildContext context) {
+    final d = geom.avatarSize;
+    final cx = geom.laneX(0);
+    final leaf = d * 0.62;
+    return SizedBox(
+      width: graphWidth,
+      height: _rowHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(child: CustomPaint(painter: _WipNodePainter(geom))),
+          Positioned(
+            left: cx - leaf / 2,
+            top: (_rowHeight - leaf) / 2,
+            // Faded so it reads as a placeholder/uncommitted node.
+            child: Opacity(opacity: 0.5, child: MintLeafLogo(size: leaf)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WipNodePainter extends CustomPainter {
+  final _GraphGeom geom;
+  _WipNodePainter(this.geom);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(geom.laneX(0), size.height / 2);
-    final paint = Paint()
-      ..color = AppColors.textMuted
+    final cx = geom.laneX(0);
+    final cy = size.height / 2;
+    final r = geom.avatarSize / 2;
+    final color = _laneColor(0); // mint lane
+
+    // Faint circular wash behind the leaf.
+    canvas.drawCircle(
+        Offset(cx, cy),
+        r,
+        Paint()
+          ..color = color.withValues(alpha: 0.10)
+          ..style = PaintingStyle.fill);
+
+    final stroke = Paint()
+      ..color = color.withValues(alpha: 0.6)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    canvas.drawCircle(center, geom.dotRadius, paint);
-    canvas.drawLine(Offset(center.dx, size.height / 2 + geom.dotRadius),
-        Offset(center.dx, size.height), paint..color = _laneColor(0));
+      ..strokeWidth = 1.3
+      ..strokeCap = StrokeCap.round;
+
+    // Dotted circle border.
+    final circle = Path()
+      ..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r));
+    _dash(canvas, circle, stroke, on: 1.6, off: 2.6);
+
+    // Dotted line dropping from the bottom of the circle to the row bottom.
+    final line = Path()
+      ..moveTo(cx, cy + r)
+      ..lineTo(cx, size.height);
+    _dash(canvas, line, stroke, on: 2.0, off: 3.0);
+  }
+
+  void _dash(Canvas canvas, Path path, Paint paint,
+      {required double on, required double off}) {
+    for (final m in path.computeMetrics()) {
+      var d = 0.0;
+      while (d < m.length) {
+        final n = (d + on).clamp(0.0, m.length);
+        canvas.drawPath(m.extractPath(d, n), paint);
+        d = n + off;
+      }
+    }
   }
 
   @override
-  bool shouldRepaint(covariant _WipDotPainter old) => old.geom != geom;
+  bool shouldRepaint(covariant _WipNodePainter old) => old.geom != geom;
 }
 
 /// Banner shown when a Solo/Pin graph filter is active.

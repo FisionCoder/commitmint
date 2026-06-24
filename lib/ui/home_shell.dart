@@ -535,9 +535,9 @@ class _Tab extends StatelessWidget {
     String tooltip;
     switch (tab.kind) {
       case TabKind.launchpad:
-        title = 'Launchpad';
+        title = 'Home';
         tooltip = title;
-        icon = Icons.rocket_launch_outlined;
+        icon = Icons.home_outlined;
         break;
       case TabKind.integrations:
         title = 'Integrations';

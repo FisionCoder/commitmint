@@ -196,7 +196,7 @@ class AppState extends ChangeNotifier {
   String tabTitle(AppTab tab) {
     switch (tab.kind) {
       case TabKind.launchpad:
-        return 'Launchpad';
+        return 'Home';
       case TabKind.integrations:
         return 'Integrations';
       case TabKind.repo:

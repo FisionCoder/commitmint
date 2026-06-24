@@ -12,6 +12,7 @@ import '../../services/git_service.dart';
 import '../../state/layout_state.dart';
 import '../../state/repo_state.dart';
 import '../../theme/app_theme.dart';
+import '../widgets/notifier.dart';
 import 'git_links.dart';
 import 'repo_actions.dart';
 
@@ -30,12 +31,7 @@ PopupMenuItem<String> _item(String value, String label, {Color? color}) =>
     );
 
 void _toast(BuildContext context, String msg) {
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(msg),
-    backgroundColor: AppColors.surfaceRaised,
-    behavior: SnackBarBehavior.floating,
-    duration: const Duration(seconds: 2),
-  ));
+  notify(context, msg, duration: const Duration(seconds: 2));
 }
 
 Future<bool> _confirm(BuildContext context, String title, String body) async {

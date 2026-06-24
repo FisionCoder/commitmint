@@ -9,9 +9,11 @@ import '../../services/commit_graph.dart';
 import '../../state/app_state.dart';
 import '../../state/layout_state.dart';
 import '../../state/repo_state.dart';
+import '../../state/settings_state.dart';
 import '../../theme/app_theme.dart';
 import '../widgets/common.dart';
 import '../widgets/mint_leaf.dart';
+import '../widgets/profile_avatar.dart';
 import 'commit_context_menu.dart';
 import 'repo_actions.dart';
 import 'sidebar_menus.dart';
@@ -24,9 +26,9 @@ const double _cellLeftPad = 10; // left inset for column text (header + rows)
 const double _authorColWidth = 156;
 const double _shaColWidth = 86;
 
-const _monoSha = TextStyle(
+TextStyle get _monoSha => TextStyle(
     fontFamily: 'Consolas',
-    fontFamilyFallback: ['monospace'],
+    fontFamilyFallback: const ['monospace'],
     fontSize: 11.5,
     color: AppColors.textMuted);
 
@@ -351,7 +353,7 @@ class _CommitGraphViewState extends State<CommitGraphView> {
     final hasText = state.hasCommitSearch;
     final matches = state.searchMatchCount;
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.borderSubtle)),
       ),
@@ -361,17 +363,17 @@ class _CommitGraphViewState extends State<CommitGraphView> {
         // No nested box/border — the field sits flat inside the bar.
         child: Row(
           children: [
-            const Icon(Icons.search, size: 15, color: AppColors.textMuted),
+            Icon(Icons.search, size: 15, color: AppColors.textMuted),
             const SizedBox(width: 8),
             Expanded(
               child: TextField(
                 controller: _searchController,
                 focusNode: _searchFocus,
                 autofocus: true,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 13, color: AppColors.textPrimary),
                 cursorColor: AppColors.accent,
-                decoration: const InputDecoration.collapsed(
+                decoration: InputDecoration.collapsed(
                   hintText: 'Search commits — message, author, SHA, branch',
                   hintStyle:
                       TextStyle(fontSize: 13, color: AppColors.textMuted),
@@ -385,7 +387,7 @@ class _CommitGraphViewState extends State<CommitGraphView> {
                 matches == 0
                     ? 'No matches'
                     : '$matches match${matches == 1 ? '' : 'es'}',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 11.5, color: AppColors.textMuted),
               ),
             ],
@@ -397,7 +399,7 @@ class _CommitGraphViewState extends State<CommitGraphView> {
                 state.closeSearch();
               },
               borderRadius: BorderRadius.circular(10),
-              child: const Padding(
+              child: Padding(
                 padding: EdgeInsets.all(2),
                 child:
                     Icon(Icons.close, size: 15, color: AppColors.textSecondary),
@@ -416,7 +418,7 @@ class _CommitGraphViewState extends State<CommitGraphView> {
               maxLines: 1,
               softWrap: false,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 10.5,
                   letterSpacing: 0.7,
                   fontWeight: FontWeight.w600,
@@ -456,7 +458,7 @@ class _ColumnSettingsButton extends StatelessWidget {
       child: InkWell(
         onTapDown: (d) => _open(context, d.globalPosition),
         borderRadius: BorderRadius.circular(4),
-        child: const Padding(
+        child: Padding(
           padding: EdgeInsets.all(4),
           child: Icon(Icons.settings, size: 14, color: AppColors.textSecondary),
         ),
@@ -599,14 +601,14 @@ class _WipRowState extends State<_WipRow> {
                       onChanged: (_) => setState(() {}),
                       onSubmitted: (_) => _commit(),
                       textInputAction: TextInputAction.done,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 13, color: AppColors.textPrimary),
                       cursorColor: AppColors.accent,
                       decoration: InputDecoration.collapsed(
                         hintText: count > 0
                             ? '// WIP — message + Enter to commit'
                             : '// WIP',
-                        hintStyle: const TextStyle(
+                        hintStyle: TextStyle(
                             fontSize: 13,
                             fontStyle: FontStyle.italic,
                             color: AppColors.textSecondary),
@@ -620,7 +622,7 @@ class _WipRowState extends State<_WipRow> {
                       child: InkWell(
                         onTap: _commit,
                         borderRadius: BorderRadius.circular(4),
-                        child: const Padding(
+                        child: Padding(
                           padding: EdgeInsets.all(2),
                           child: Icon(Icons.check_circle,
                               size: 16, color: AppColors.green),
@@ -630,10 +632,10 @@ class _WipRowState extends State<_WipRow> {
                   ],
                   if (count > 0) ...[
                     const SizedBox(width: 8),
-                    const Icon(Icons.edit, size: 13, color: AppColors.amber),
+                    Icon(Icons.edit, size: 13, color: AppColors.amber),
                     const SizedBox(width: 4),
                     Text('$count',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 12, color: AppColors.textSecondary)),
                     const SizedBox(width: 8),
                   ],
@@ -678,52 +680,53 @@ class _CommitRow extends StatefulWidget {
 class _CommitRowState extends State<_CommitRow> {
   bool _hover = false;
 
+  /// Builds a DateFormat from a user-supplied pattern + locale, falling back to
+  /// a safe default if the pattern is invalid.
+  static DateFormat _fmt(String pattern, String fallback, String? locale) {
+    try {
+      return DateFormat(pattern, locale);
+    } catch (_) {
+      return DateFormat(fallback, locale);
+    }
+  }
+
+  /// Whether this row's commit carries the branch currently hovered in the
+  /// sidebar (matching local/remote/HEAD ref forms).
+  bool _isAssociated(GitCommit commit, String? branch) {
+    if (branch == null) return false;
+    return commit.refs.any((r) =>
+        r == branch || r.endsWith('/$branch') || r == 'HEAD -> $branch');
+  }
+
   @override
   Widget build(BuildContext context) {
     final gl = widget.gl;
     final commit = widget.row.commit;
-    final dateFmt = DateFormat('MM/dd/yyyy @ h:mm a');
+    final settings = context.watch<SettingsState>();
+    final repo = context.watch<RepoState>();
+    final locale = settings.effectiveLocale;
+    final dateFmt = _fmt(settings.dateTimeFormat, 'MM/dd/yyyy @ h:mm a', locale);
+    final verboseFmt =
+        _fmt(settings.dateVerboseFormat, 'EEEE, MMMM d, y · h:mm a', locale);
     final authorColor =
         context.read<AppState>().colorForAuthor(commit.author, commit.authorEmail);
 
+    final associated = settings.highlightAssociatedRows &&
+        _isAssociated(commit, repo.hoverBranch);
     final bg = widget.selected
         ? AppColors.selectionRow
-        : (_hover
-            ? AppColors.surfaceRaised.withValues(alpha: 0.5)
-            : Colors.transparent);
+        : (associated
+            ? AppColors.selection
+            : (_hover
+                ? AppColors.surfaceRaised.withValues(alpha: 0.5)
+                : Colors.transparent));
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        onSecondaryTapDown: (details) {
-          widget.onTap();
-          widget.onContextMenu(commit, details.globalPosition);
-        },
-        child: Tooltip(
-          waitDuration: const Duration(milliseconds: 450),
-          padding: const EdgeInsets.all(12),
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceRaised,
-            border: Border.all(color: AppColors.border),
-            borderRadius: BorderRadius.circular(6),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 14,
-                  offset: const Offset(0, 4)),
-            ],
-          ),
-          richMessage: _commitTooltip(commit, authorColor),
-          child: Container(
-          color: bg,
-          padding: const EdgeInsets.symmetric(horizontal: _rowHPad),
-          child: Row(
-            children: _columns(
-              gl,
+    final row = Container(
+      color: bg,
+      padding: const EdgeInsets.symmetric(horizontal: _rowHPad),
+      child: Row(
+        children: _columns(
+          gl,
               branch: Padding(
                 padding: const EdgeInsets.only(left: _cellLeftPad),
                 child: _refLabels(commit, gl,
@@ -749,11 +752,11 @@ class _CommitRowState extends State<_CommitRow> {
                           ? _StashNode(
                               size: gl.geom.avatarSize,
                               color: _laneColor(widget.row.dotColor))
-                          : UserAvatar(
+                          : AuthorAvatar(
                               name: commit.author,
                               email: commit.authorEmail,
                               size: gl.geom.avatarSize,
-                              color: authorColor,
+                              fallbackColor: authorColor,
                             ),
                     ),
                   ],
@@ -764,7 +767,7 @@ class _CommitRowState extends State<_CommitRow> {
                 child: _HighlightedText(
                   commit.subject,
                   widget.highlight,
-                  const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                  TextStyle(fontSize: 13, color: AppColors.textPrimary),
                 ),
               ),
               author: commit.isStash
@@ -773,16 +776,16 @@ class _CommitRowState extends State<_CommitRow> {
                       padding: const EdgeInsets.only(left: _cellLeftPad),
                       child: Row(
                         children: [
-                          UserAvatar(
+                          AuthorAvatar(
                               name: commit.author,
                               email: commit.authorEmail,
                               size: 15,
-                              color: authorColor),
+                              fallbackColor: authorColor),
                           const SizedBox(width: 6),
                           Expanded(
                             child: TruncatedText(
                               commit.author,
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 12.5,
                                   color: AppColors.textSecondary),
                             ),
@@ -794,10 +797,9 @@ class _CommitRowState extends State<_CommitRow> {
                 padding: const EdgeInsets.only(left: _cellLeftPad),
                 child: TruncatedText(
                   dateFmt.format(commit.date),
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 12, color: AppColors.textMuted),
-                  tooltipText: DateFormat('EEEE, MMMM d, y · h:mm a')
-                      .format(commit.date),
+                  tooltipText: verboseFmt.format(commit.date),
                 ),
               ),
               sha: commit.isStash
@@ -810,9 +812,41 @@ class _CommitRowState extends State<_CommitRow> {
               trailing: const SizedBox(width: _trailingWidth),
             ),
           ),
-        ),
-        ),
+        );
+
+    final interactive = MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        onSecondaryTapDown: (details) {
+          widget.onTap();
+          widget.onContextMenu(commit, details.globalPosition);
+        },
+        child: row,
       ),
+    );
+
+    // The "ghost" hover popover is gated by the UI setting.
+    if (!settings.showGhostHover) return interactive;
+    return Tooltip(
+      waitDuration: const Duration(milliseconds: 450),
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(6),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 14,
+              offset: const Offset(0, 4)),
+        ],
+      ),
+      richMessage: _commitTooltip(commit, authorColor),
+      child: interactive,
     );
   }
 
@@ -828,14 +862,14 @@ class _CommitRowState extends State<_CommitRow> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(commit.subject,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                       color: AppColors.textPrimary)),
               if (commit.body.trim().isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(commit.body.trim(),
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12.5,
                         height: 1.4,
                         color: AppColors.textSecondary)),
@@ -845,11 +879,11 @@ class _CommitRowState extends State<_CommitRow> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (!commit.isStash)
-                    UserAvatar(
+                    AuthorAvatar(
                         name: commit.author,
                         email: commit.authorEmail,
                         size: 16,
-                        color: authorColor),
+                        fallbackColor: authorColor),
                   if (!commit.isStash) const SizedBox(width: 6),
                   Flexible(
                     child: Text(
@@ -858,7 +892,7 @@ class _CommitRowState extends State<_CommitRow> {
                           : '${commit.author}  ·  ${commit.shortHash}  ·  ${dateFmt.format(commit.date)}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 11.5, color: AppColors.textMuted),
                     ),
                   ),
@@ -1082,7 +1116,8 @@ class _WipNode extends StatelessWidget {
             left: cx - leaf / 2,
             top: (_rowHeight - leaf) / 2,
             // Faded so it reads as a placeholder/uncommitted node.
-            child: Opacity(opacity: 0.5, child: MintLeafLogo(size: leaf)),
+            child: Opacity(
+                opacity: 0.5, child: MintLeafLogo(size: leaf, background: false)),
           ),
         ],
       ),
@@ -1159,18 +1194,18 @@ class _FilterBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Row(
         children: [
-          const Icon(Icons.filter_alt_outlined,
+          Icon(Icons.filter_alt_outlined,
               size: 14, color: AppColors.accent),
           const SizedBox(width: 8),
           Expanded(
             child: Text(label,
                 style:
-                    const TextStyle(fontSize: 12, color: AppColors.textPrimary)),
+                    TextStyle(fontSize: 12, color: AppColors.textPrimary)),
           ),
           InkWell(
             onTap: state.clearGraphFilter,
             borderRadius: BorderRadius.circular(4),
-            child: const Padding(
+            child: Padding(
               padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -1217,7 +1252,7 @@ class _HighlightedText extends StatelessWidget {
       if (idx > start) spans.add(TextSpan(text: text.substring(start, idx)));
       spans.add(TextSpan(
         text: text.substring(idx, idx + ql.length),
-        style: const TextStyle(
+        style: TextStyle(
           color: AppColors.background,
           backgroundColor: AppColors.amber,
           fontWeight: FontWeight.w600,
@@ -1236,7 +1271,7 @@ class _NoResults extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1262,14 +1297,14 @@ class _ErrorView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, color: AppColors.red, size: 36),
+            Icon(Icons.error_outline, color: AppColors.red, size: 36),
             const SizedBox(height: 12),
-            const Text('Could not read this repository',
+            Text('Could not read this repository',
                 style: TextStyle(fontSize: 15, color: AppColors.textPrimary)),
             const SizedBox(height: 8),
             Text(message,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 12.5, color: AppColors.textSecondary)),
           ],
         ),

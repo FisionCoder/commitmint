@@ -7,8 +7,11 @@ import '../../models/file_change.dart';
 import '../../models/git_commit.dart';
 import '../../state/app_state.dart';
 import '../../state/repo_state.dart';
+import '../../state/settings_state.dart';
 import '../../theme/app_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/notifier.dart';
+import '../widgets/profile_avatar.dart';
 import 'repo_actions.dart';
 
 class ChangesPanel extends StatelessWidget {
@@ -18,7 +21,7 @@ class ChangesPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<RepoState>();
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(left: BorderSide(color: AppColors.border)),
       ),
@@ -47,7 +50,7 @@ class _WorkingChanges extends StatelessWidget {
                   child: Text('${state.totalChanges} file changes on',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12.5, color: AppColors.textSecondary)),
                 ),
                 const SizedBox(width: 6),
@@ -168,7 +171,7 @@ class _PathTreeToggle extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 0, 12, 10),
       child: Row(
         children: [
-          const Icon(Icons.swap_vert, size: 16, color: AppColors.textMuted),
+          Icon(Icons.swap_vert, size: 16, color: AppColors.textMuted),
           const Spacer(),
           _ToggleChip(
             icon: Icons.list,
@@ -273,7 +276,7 @@ class _FileSectionState extends State<_FileSection> {
                   child: Text('${widget.title} (${widget.count})',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w600,
                           color: AppColors.textPrimary)),
@@ -288,7 +291,7 @@ class _FileSectionState extends State<_FileSection> {
         ),
         if (_expanded) ...[
           if (widget.files.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.fromLTRB(34, 2, 10, 6),
               child: Text('—',
                   style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
@@ -380,11 +383,11 @@ class _FileRowState extends State<_FileRow> {
                         TextSpan(
                             text: '${f.directory}/',
                             style:
-                                const TextStyle(color: AppColors.textMuted)),
+                                TextStyle(color: AppColors.textMuted)),
                       TextSpan(
                           text: f.fileName,
                           style:
-                              const TextStyle(color: AppColors.textPrimary)),
+                              TextStyle(color: AppColors.textPrimary)),
                     ],
                   ),
                 ),
@@ -532,7 +535,7 @@ class _FileTreeState extends State<_FileTree> {
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(allExpanded ? 'Collapse All' : 'Expand All',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12, color: AppColors.textSecondary)),
                 ),
               ),
@@ -584,14 +587,14 @@ class _FileTreeState extends State<_FileTree> {
               child: Text(d.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 12.5, color: AppColors.textSecondary)),
             ),
             const SizedBox(width: 6),
-            const Icon(Icons.edit, size: 13, color: AppColors.amber),
+            Icon(Icons.edit, size: 13, color: AppColors.amber),
             const SizedBox(width: 4),
             Text('${d.count}',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 12, color: AppColors.textSecondary)),
           ],
         ),
@@ -641,7 +644,7 @@ class _SmallButton extends StatelessWidget {
           border: Border.all(color: AppColors.border),
         ),
         child: Text(label,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 11.5, color: AppColors.textSecondary)),
       ),
     );
@@ -676,36 +679,32 @@ class _CommitBoxState extends State<_CommitBox> {
   }
 
   Future<void> _cloudPatch(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
     final patch = await widget.state.git.workingPatch();
+    if (!context.mounted) return;
     if (patch.trim().isEmpty) {
-      messenger.showSnackBar(const SnackBar(
-        content: Text('No tracked changes to share as a patch.'),
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 2),
-      ));
+      notify(context, 'No tracked changes to share as a patch.',
+          duration: const Duration(seconds: 2));
       return;
     }
     await Clipboard.setData(ClipboardData(text: patch));
-    messenger.showSnackBar(SnackBar(
-      content: Row(
-        children: const [
-          Icon(Icons.cloud_done_outlined, color: AppColors.green, size: 18),
-          SizedBox(width: 10),
-          Text('Cloud Patch copied to clipboard'),
-        ],
-      ),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-    ));
+    if (!context.mounted) return;
+    notify(context, 'Cloud Patch copied to clipboard',
+        icon: Icons.cloud_done_outlined,
+        iconColor: AppColors.green,
+        duration: const Duration(seconds: 2));
   }
+
+  SpellCheckConfiguration? _spell(bool enabled) => enabled
+      ? SpellCheckConfiguration(spellCheckService: DefaultSpellCheckService())
+      : null;
 
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
+    final spell = _spell(context.watch<SettingsState>().enableSpellChecking);
     final remaining = 72 - _summary.text.length;
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(top: BorderSide(color: AppColors.border)),
       ),
@@ -715,9 +714,9 @@ class _CommitBoxState extends State<_CommitBox> {
         children: [
           Row(
             children: [
-              const Icon(Icons.adjust, size: 14, color: AppColors.textSecondary),
+              Icon(Icons.adjust, size: 14, color: AppColors.textSecondary),
               const SizedBox(width: 6),
-              const Text('Commit',
+              Text('Commit',
                   style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -753,11 +752,11 @@ class _CommitBoxState extends State<_CommitBox> {
                 child: Checkbox(
                   value: state.amend,
                   onChanged: (v) => state.setAmend(v ?? false),
-                  side: const BorderSide(color: AppColors.border),
+                  side: BorderSide(color: AppColors.border),
                 ),
               ),
               const SizedBox(width: 8),
-              const Text('Amend previous commit',
+              Text('Amend previous commit',
                   style: TextStyle(
                       fontSize: 12.5, color: AppColors.textSecondary)),
             ],
@@ -767,6 +766,7 @@ class _CommitBoxState extends State<_CommitBox> {
             children: [
               TextField(
                 controller: _summary,
+                spellCheckConfiguration: spell,
                 onChanged: (v) {
                   state.setCommitSummary(v);
                   setState(() {});
@@ -788,6 +788,7 @@ class _CommitBoxState extends State<_CommitBox> {
           const SizedBox(height: 8),
           TextField(
             controller: _description,
+            spellCheckConfiguration: spell,
             onChanged: state.setCommitDescription,
             minLines: 2,
             maxLines: 4,
@@ -829,13 +830,21 @@ class _CommitDetails extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = commit;
     if (c == null) {
-      return const Center(
+      return Center(
         child: Text('Select a commit',
             style: TextStyle(color: AppColors.textMuted)),
       );
     }
     final state = context.read<RepoState>();
-    final dateFmt = DateFormat('EEE, MMM d yyyy • h:mm a');
+    final settings = context.watch<SettingsState>();
+    DateFormat wordFmt;
+    try {
+      wordFmt = DateFormat(settings.dateWordFormat, settings.effectiveLocale);
+    } catch (_) {
+      wordFmt = DateFormat('EEE, MMM d yyyy • h:mm a', settings.effectiveLocale);
+    }
+    final showBody =
+        settings.commitDescriptionVisibility != DescriptionVisibility.never;
     return SingleChildScrollView(
       child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -846,14 +855,14 @@ class _CommitDetails extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(c.subject,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 14.5,
                       fontWeight: FontWeight.w600,
                       color: AppColors.textPrimary)),
-              if (c.body.isNotEmpty) ...[
+              if (c.body.isNotEmpty && showBody) ...[
                 const SizedBox(height: 8),
                 Text(c.body,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12.5,
                         height: 1.4,
                         color: AppColors.textSecondary)),
@@ -861,11 +870,11 @@ class _CommitDetails extends StatelessWidget {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  UserAvatar(
+                  AuthorAvatar(
                     name: c.author,
                     email: c.authorEmail,
                     size: 26,
-                    color: context
+                    fallbackColor: context
                         .read<AppState>()
                         .colorForAuthor(c.author, c.authorEmail),
                   ),
@@ -873,7 +882,7 @@ class _CommitDetails extends StatelessWidget {
                   Flexible(
                     child: Text(c.author,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 12.5, color: AppColors.textPrimary)),
                   ),
                   if (c.authorEmail.isNotEmpty) ...[
@@ -881,21 +890,21 @@ class _CommitDetails extends StatelessWidget {
                     Flexible(
                       child: Text(c.authorEmail,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 12, color: AppColors.textMuted)),
                     ),
                   ],
                 ],
               ),
               const SizedBox(height: 6),
-              _detail(Icons.schedule, dateFmt.format(c.date), null),
+              _detail(Icons.schedule, wordFmt.format(c.date), null),
               const SizedBox(height: 6),
               _detail(Icons.tag, c.shortHash, c.isMerge ? 'merge commit' : null),
             ],
           ),
         ),
         const Divider(height: 1),
-        const Padding(
+        Padding(
           padding: EdgeInsets.fromLTRB(16, 12, 16, 6),
           child: Text('FILES CHANGED',
               style: TextStyle(
@@ -918,7 +927,7 @@ class _CommitDetails extends StatelessWidget {
             }
             final files = snap.data!;
             if (files.isEmpty) {
-              return const Padding(
+              return Padding(
                   padding: EdgeInsets.all(16),
                   child: Text('No file changes',
                       style:
@@ -933,14 +942,14 @@ class _CommitDetails extends StatelessWidget {
                     child: Row(
                       children: [
                         Text(f.statusLetter,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
                                 color: AppColors.textSecondary)),
                         const SizedBox(width: 10),
                         Expanded(
                           child: TruncatedText(f.path,
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 12.5,
                                   color: AppColors.textPrimary)),
                         ),
@@ -965,7 +974,7 @@ class _CommitDetails extends StatelessWidget {
         Flexible(
           child: Text(main,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 12.5, color: AppColors.textPrimary)),
         ),
         if (sub != null) ...[
@@ -974,7 +983,7 @@ class _CommitDetails extends StatelessWidget {
             child: Text(sub,
                 overflow: TextOverflow.ellipsis,
                 style:
-                    const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                    TextStyle(fontSize: 12, color: AppColors.textMuted)),
           ),
         ],
       ],

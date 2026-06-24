@@ -11,6 +11,41 @@ class GitException implements Exception {
   String toString() => message;
 }
 
+/// App-wide git runtime overrides driven by Settings (SSH key / agent and
+/// credential-manager behaviour). Consulted by every network git command so
+/// the SSH and credential settings actually take effect without threading
+/// state through every call.
+class GitRuntimeConfig {
+  GitRuntimeConfig._();
+
+  /// Explicit SSH private key to use for SSH remotes (null = system default).
+  static String? sshKeyPath;
+
+  /// When true, use the system SSH agent / default keys and ignore [sshKeyPath].
+  static bool useLocalAgent = false;
+
+  /// When false, disable the OS credential manager for HTTPS operations.
+  static bool useCredentialManager = true;
+
+  /// `-c` overrides applied to every network git invocation.
+  static List<String> configArgs() {
+    final args = <String>[];
+    final key = sshKeyPath;
+    if (!useLocalAgent && key != null && key.trim().isNotEmpty) {
+      // Force this key and ignore agent identities. Forward slashes work on
+      // Windows OpenSSH and avoid backslash escaping issues.
+      final p = key.trim().replaceAll(r'\', '/');
+      args.addAll(
+          ['-c', 'core.sshCommand=ssh -i "$p" -o IdentitiesOnly=yes']);
+    }
+    if (!useCredentialManager) {
+      // Empty helper disables any configured credential manager for this call.
+      args.addAll(['-c', 'credential.helper=']);
+    }
+    return args;
+  }
+}
+
 /// Thin wrapper around the system `git` CLI.
 class GitService {
   final String workingDir;
@@ -620,15 +655,26 @@ class GitService {
       ? const []
       : ['-c', 'credential.interactive=false', '-c', 'http.extraHeader=$authHeader'];
 
+  /// Combines the per-call auth header overrides with the app-wide SSH /
+  /// credential runtime config.
+  List<String> _netArgs(String? authHeader) =>
+      [...GitRuntimeConfig.configArgs(), ..._authArgs(authHeader)];
+
+  /// Whether to suppress the credential-manager GUI for this network call.
+  Map<String, String>? _netEnv(String? authHeader) =>
+      (authHeader != null || !GitRuntimeConfig.useCredentialManager)
+          ? _noPromptEnv
+          : null;
+
   Future<String> pull({String? authHeader}) => _runOrThrow(
-      [..._authArgs(authHeader), 'pull'],
-      env: authHeader != null ? _noPromptEnv : null);
+      [..._netArgs(authHeader), 'pull'],
+      env: _netEnv(authHeader));
   Future<String> push({String? authHeader}) => _runOrThrow(
-      [..._authArgs(authHeader), 'push'],
-      env: authHeader != null ? _noPromptEnv : null);
+      [..._netArgs(authHeader), 'push'],
+      env: _netEnv(authHeader));
   Future<String> fetch({String? authHeader}) => _runOrThrow(
-      [..._authArgs(authHeader), 'fetch', '--all', '--prune'],
-      env: authHeader != null ? _noPromptEnv : null);
+      [..._netArgs(authHeader), 'fetch', '--all', '--prune'],
+      env: _netEnv(authHeader));
   Future<void> checkout(String branch) => _runOrThrow(['checkout', branch]);
   Future<void> createBranch(String name) =>
       _runOrThrow(['checkout', '-b', name]);
@@ -640,7 +686,7 @@ class GitService {
   /// non-interactive auth (provider-specific — see IntegrationService).
   static Future<String> clone(String url, String destination,
       {String? userInfo}) async {
-    final args = ['clone'];
+    final args = [...GitRuntimeConfig.configArgs(), 'clone'];
     if (userInfo != null && userInfo.isNotEmpty && url.startsWith('https://')) {
       // Replace any existing userinfo with ours.
       final authed = url.replaceFirst(

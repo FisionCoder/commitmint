@@ -50,7 +50,7 @@ class _BranchSidebarState extends State<BranchSidebar> {
         state.stashes.length;
 
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surfaceAlt,
         border: Border(right: BorderSide(color: AppColors.border)),
       ),
@@ -67,7 +67,7 @@ class _BranchSidebarState extends State<BranchSidebar> {
                     onTap: () =>
                         context.read<LayoutState>().toggleSidebarCollapsed(),
                     borderRadius: BorderRadius.circular(4),
-                    child: const Padding(
+                    child: Padding(
                       padding: EdgeInsets.all(4),
                       child: Icon(Icons.chevron_left,
                           size: 18, color: AppColors.textMuted),
@@ -75,12 +75,12 @@ class _BranchSidebarState extends State<BranchSidebar> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Text('Viewing',
+                Text('Viewing',
                     style: TextStyle(
                         fontSize: 12, color: AppColors.textSecondary)),
                 const SizedBox(width: 6),
                 Text('$totalVisible',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textPrimary)),
@@ -161,11 +161,11 @@ class _BranchSidebarState extends State<BranchSidebar> {
           padding: const EdgeInsets.fromLTRB(28, 4, 8, 4),
           child: Row(
             children: [
-              const Icon(Icons.dns_outlined,
+              Icon(Icons.dns_outlined,
                   size: 13, color: AppColors.textMuted),
               const SizedBox(width: 6),
               Text(entry.key,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 12, color: AppColors.textSecondary)),
             ],
           ),
@@ -293,7 +293,7 @@ class _EmptyHint extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(34, 2, 10, 6),
       child: Text(text,
-          style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+          style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
     );
   }
 }
@@ -308,15 +308,15 @@ class _PrGroupLabel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(28, 6, 10, 4),
       child: Row(
         children: [
-          const Icon(Icons.expand_more, size: 14, color: AppColors.textMuted),
+          Icon(Icons.expand_more, size: 14, color: AppColors.textMuted),
           const SizedBox(width: 4),
           Expanded(
             child: Text(label,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 12, color: AppColors.textSecondary)),
           ),
           Text('$count',
-              style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+              style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
         ],
       ),
     );
@@ -349,15 +349,15 @@ class _PrRowState extends State<_PrRow> {
   InlineSpan _detail() {
     final pr = widget.pr;
     final df = DateFormat('MMM d, y');
-    const muted = TextStyle(color: AppColors.textSecondary, fontSize: 12.5);
-    const hl = TextStyle(
+    final muted = TextStyle(color: AppColors.textSecondary, fontSize: 12.5);
+    final hl = TextStyle(
         color: AppColors.accent, fontSize: 12.5, fontWeight: FontWeight.w500);
     final created = pr.created;
     final updated = pr.updated;
     return TextSpan(style: muted, children: [
       TextSpan(
           text: '${pr.title}  #${pr.id}\n\n',
-          style: const TextStyle(
+          style: TextStyle(
               color: AppColors.textPrimary,
               fontSize: 14,
               fontWeight: FontWeight.w600)),
@@ -397,17 +397,17 @@ class _PrRowState extends State<_PrRow> {
             padding: const EdgeInsets.fromLTRB(44, 5, 8, 5),
             child: Row(
               children: [
-                const Icon(Icons.check, size: 13, color: AppColors.green),
+                Icon(Icons.check, size: 13, color: AppColors.green),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text('#${pr.id} ${pr.title}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12.5, color: AppColors.textSecondary)),
                 ),
                 if (_hover)
-                  const Icon(Icons.more_vert,
+                  Icon(Icons.more_vert,
                       size: 14, color: AppColors.textMuted),
               ],
             ),
@@ -432,7 +432,7 @@ class CollapsedSidebar extends StatelessWidget {
 
     return Container(
       width: width,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surfaceAlt,
         border: Border(right: BorderSide(color: AppColors.border)),
       ),
@@ -449,11 +449,11 @@ class CollapsedSidebar extends StatelessWidget {
                 child: Container(
                   width: 30,
                   height: 30,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     color: AppColors.surfaceRaised,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.chevron_right,
+                  child: Icon(Icons.chevron_right,
                       size: 18, color: AppColors.textSecondary),
                 ),
               ),
@@ -542,7 +542,7 @@ class _RailItemState extends State<_RailItem> {
                 if (widget.count != null) ...[
                   const SizedBox(height: 2),
                   Text('${widget.count}',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 11, color: AppColors.textMuted)),
                 ],
               ],
@@ -576,8 +576,14 @@ class _BranchRowState extends State<_BranchRow> {
         b.kind == RefKind.remoteBranch;
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
+      onEnter: (_) {
+        setState(() => _hover = true);
+        if (isCheckoutable) state.setHoverBranch(b.displayName);
+      },
+      onExit: (_) {
+        setState(() => _hover = false);
+        if (state.hoverBranch == b.displayName) state.setHoverBranch(null);
+      },
       cursor:
           isCheckoutable ? SystemMouseCursors.click : SystemMouseCursors.basic,
       child: GestureDetector(
@@ -601,7 +607,7 @@ class _BranchRowState extends State<_BranchRow> {
           child: Row(
             children: [
               if (b.isCurrent)
-                const Icon(Icons.check, size: 13, color: AppColors.green)
+                Icon(Icons.check, size: 13, color: AppColors.green)
               else
                 Icon(
                   b.kind == RefKind.stash
@@ -628,18 +634,18 @@ class _BranchRowState extends State<_BranchRow> {
                 ),
               ),
               if (b.ahead > 0) ...[
-                const Icon(Icons.arrow_upward,
+                Icon(Icons.arrow_upward,
                     size: 10, color: AppColors.green),
                 Text('${b.ahead}',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 10.5, color: AppColors.green)),
                 const SizedBox(width: 4),
               ],
               if (b.behind > 0) ...[
-                const Icon(Icons.arrow_downward,
+                Icon(Icons.arrow_downward,
                     size: 10, color: AppColors.amber),
                 Text('${b.behind}',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 10.5, color: AppColors.amber)),
               ],
             ],

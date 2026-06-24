@@ -1,50 +1,29 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
+import '../widgets/notifier.dart';
 
-/// Runs a repo action future, showing a snackbar on success/failure.
+/// Runs a repo action future, showing a notification on success/failure.
 Future<void> runRepoAction(
   BuildContext context,
   Future<void> Function() action, {
   String? success,
 }) async {
-  final messenger = ScaffoldMessenger.of(context);
   try {
     await action();
-    if (success != null) {
-      messenger.showSnackBar(SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle, color: AppColors.green, size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(success,
-                  style: const TextStyle(
-                      color: AppColors.textPrimary, fontSize: 13.5)),
-            ),
-          ],
-        ),
-        backgroundColor: AppColors.surfaceRaised,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ));
+    if (success != null && context.mounted) {
+      notify(context, success,
+          icon: Icons.check_circle,
+          iconColor: AppColors.green,
+          duration: const Duration(seconds: 2));
     }
   } catch (e) {
-    messenger.showSnackBar(SnackBar(
-      content: Row(
-        children: [
-          const Icon(Icons.error, color: Colors.white, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(e.toString(),
-                style: const TextStyle(color: Colors.white, fontSize: 13.5)),
-          ),
-        ],
-      ),
-      backgroundColor: AppColors.red.withValues(alpha: 0.95),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 4),
-    ));
+    if (context.mounted) {
+      notify(context, e.toString(),
+          icon: Icons.error,
+          iconColor: AppColors.red,
+          duration: const Duration(seconds: 4));
+    }
   }
 }
 

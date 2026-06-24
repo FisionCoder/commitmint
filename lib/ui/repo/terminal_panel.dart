@@ -7,10 +7,11 @@ import 'package:provider/provider.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../state/repo_state.dart';
+import '../../state/settings_state.dart';
 import '../../theme/app_theme.dart';
 
-/// Terminal colour scheme matching the app's dark palette.
-const _termTheme = TerminalTheme(
+/// Dark terminal colour scheme.
+const _darkTermTheme = TerminalTheme(
   cursor: Color(0xFF2DD4BF),
   selection: Color(0x552DD4BF),
   foreground: Color(0xFFE8EDEA),
@@ -36,6 +37,37 @@ const _termTheme = TerminalTheme(
   searchHitForeground: Color(0xFF11151B),
 );
 
+/// Light terminal colour scheme: dark text on a light background, with deeper
+/// ANSI colours so output stays legible.
+const _lightTermTheme = TerminalTheme(
+  cursor: Color(0xFF0D9488),
+  selection: Color(0x330D9488),
+  foreground: Color(0xFF1A211E),
+  background: Color(0xFFF7F9F8),
+  black: Color(0xFF1A211E),
+  red: Color(0xFFB91C1C),
+  green: Color(0xFF15803D),
+  yellow: Color(0xFFB45309),
+  blue: Color(0xFF1D4ED8),
+  magenta: Color(0xFF7C3AED),
+  cyan: Color(0xFF0E7490),
+  white: Color(0xFF4C5852),
+  brightBlack: Color(0xFF808C85),
+  brightRed: Color(0xFFDC2626),
+  brightGreen: Color(0xFF16A34A),
+  brightYellow: Color(0xFFD97706),
+  brightBlue: Color(0xFF2563EB),
+  brightMagenta: Color(0xFF9333EA),
+  brightCyan: Color(0xFF0891B2),
+  brightWhite: Color(0xFF1A211E),
+  searchHitBackground: Color(0xFFFBBF24),
+  searchHitBackgroundCurrent: Color(0xFFF59E0B),
+  searchHitForeground: Color(0xFF1A211E),
+);
+
+TerminalTheme get _termTheme =>
+    AppColors.brightness == Brightness.light ? _lightTermTheme : _darkTermTheme;
+
 /// An embedded terminal running a real shell (ConPTY on Windows) rooted at the
 /// repository's working directory.
 class TerminalPanel extends StatefulWidget {
@@ -50,6 +82,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
   final Terminal terminal = Terminal(maxLines: 10000);
   final TerminalController _controller = TerminalController();
   Pty? _pty;
+  bool _focused = true;
 
   @override
   void initState() {
@@ -58,21 +91,27 @@ class _TerminalPanelState extends State<TerminalPanel> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
   }
 
-  String _shell() {
+  /// Resolves the executable for the user's configured default shell.
+  String _shell(String configured) {
     if (Platform.isWindows) {
-      // PowerShell is friendlier for git; fall back to cmd.
-      return Platform.environment['COMSPEC']?.toLowerCase().contains('cmd') ??
-              true
-          ? 'powershell.exe'
-          : (Platform.environment['COMSPEC'] ?? 'cmd.exe');
+      switch (configured) {
+        case 'cmd':
+          return Platform.environment['COMSPEC'] ?? 'cmd.exe';
+        case 'bash':
+          return 'bash.exe'; // Git Bash on PATH
+        case 'powershell':
+        default:
+          return 'powershell.exe';
+      }
     }
     return Platform.environment['SHELL'] ?? 'bash';
   }
 
   void _start() {
+    final shell = context.read<SettingsState>().defaultShell;
     try {
       final pty = Pty.start(
-        _shell(),
+        _shell(shell),
         columns: terminal.viewWidth,
         rows: terminal.viewHeight,
         workingDirectory: widget.workingDirectory,
@@ -107,11 +146,24 @@ class _TerminalPanelState extends State<TerminalPanel> {
     super.dispose();
   }
 
+  TerminalCursorType _cursorType(TerminalCursor c) {
+    switch (c) {
+      case TerminalCursor.block:
+        return TerminalCursorType.block;
+      case TerminalCursor.underline:
+        return TerminalCursorType.underline;
+      case TerminalCursor.bar:
+        return TerminalCursorType.verticalBar;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final s = context.watch<SettingsState>();
+    final dim = s.dimTerminalWhenUnfocused && !_focused;
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF11151B),
+      decoration: BoxDecoration(
+        color: AppColors.terminalBackground,
         border: Border(top: BorderSide(color: AppColors.border)),
       ),
       child: Column(
@@ -120,14 +172,30 @@ class _TerminalPanelState extends State<TerminalPanel> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
-              child: TerminalView(
-                terminal,
-                controller: _controller,
-                autofocus: true,
-                backgroundOpacity: 0,
-                theme: _termTheme,
-                textStyle: const TerminalStyle(fontSize: 13),
-                padding: EdgeInsets.zero,
+              child: AnimatedOpacity(
+                opacity: dim ? 0.55 : 1.0,
+                duration: const Duration(milliseconds: 120),
+                child: Focus(
+                  canRequestFocus: false,
+                  skipTraversal: true,
+                  onFocusChange: (f) {
+                    if (f != _focused) setState(() => _focused = f);
+                  },
+                  child: TerminalView(
+                    terminal,
+                    controller: _controller,
+                    autofocus: true,
+                    backgroundOpacity: 0,
+                    theme: _termTheme,
+                    cursorType: _cursorType(s.terminalCursor),
+                    textStyle: TerminalStyle(
+                      fontSize: s.terminalFontSize,
+                      height: s.terminalLineHeight,
+                      fontFamily: s.terminalFont,
+                    ),
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
               ),
             ),
           ),
@@ -146,15 +214,15 @@ class _Header extends StatelessWidget {
     return Container(
       height: 32,
       padding: const EdgeInsets.only(left: 12, right: 4),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.terminal, size: 14, color: AppColors.textSecondary),
+          Icon(Icons.terminal, size: 14, color: AppColors.textSecondary),
           const SizedBox(width: 8),
-          const Text('TERMINAL',
+          Text('TERMINAL',
               style: TextStyle(
                   fontSize: 11,
                   letterSpacing: 0.8,
@@ -166,7 +234,7 @@ class _Header extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style:
-                    const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                    TextStyle(fontSize: 11, color: AppColors.textMuted)),
           ),
           IconButton(
             icon: const Icon(Icons.close, size: 15),

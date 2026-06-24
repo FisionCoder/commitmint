@@ -160,6 +160,50 @@ extension ProviderTypeX on ProviderType {
     }
   }
 
+  /// The provider page to open in the browser so the user can sign in and
+  /// create the token/secret to paste back. Host-aware for self-managed /
+  /// enterprise / Azure / Jira instances; [host] may be empty for those (then a
+  /// sensible fallback is used). Scopes/description are pre-filled where the
+  /// provider supports it.
+  String tokenCreateUrl(String host) {
+    final h = host.trim().replaceAll(RegExp(r'/+$'), '');
+    switch (this) {
+      case ProviderType.github:
+        return 'https://github.com/settings/tokens/new'
+            '?scopes=repo&description=Commit%20Mint';
+      case ProviderType.githubEnterprise:
+        return h.isEmpty
+            ? 'https://docs.github.com/en/enterprise-server/authentication'
+            : 'https://$h/settings/tokens/new?scopes=repo&description=Commit%20Mint';
+      case ProviderType.gitlab:
+        return 'https://gitlab.com/-/user_settings/personal_access_tokens'
+            '?name=Commit+Mint&scopes=read_api,read_repository,write_repository';
+      case ProviderType.gitlabSelfManaged:
+        return h.isEmpty
+            ? 'https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html'
+            : 'https://$h/-/user_settings/personal_access_tokens'
+                '?name=Commit+Mint&scopes=read_api,read_repository,write_repository';
+      case ProviderType.bitbucket:
+        return 'https://bitbucket.org/account/settings/app-passwords/';
+      case ProviderType.bitbucketDataCenter:
+        return h.isEmpty
+            ? 'https://confluence.atlassian.com/bitbucketserver/personal-access-tokens-939515499.html'
+            : 'https://$h/plugins/servlet/access-tokens/manage';
+      case ProviderType.azureDevOps:
+        return h.isEmpty
+            ? 'https://dev.azure.com'
+            : 'https://$h/_usersSettings/tokens';
+      case ProviderType.jiraCloud:
+        return 'https://id.atlassian.com/manage-profile/security/api-tokens';
+      case ProviderType.jiraDataCenter:
+        return h.isEmpty
+            ? 'https://confluence.atlassian.com/enterprise/using-personal-access-tokens-1026032365.html'
+            : 'https://$h/secure/ViewProfile.jspa';
+      case ProviderType.trello:
+        return 'https://trello.com/app-key';
+    }
+  }
+
   /// Hint shown under the secret field describing how to create the token.
   String get tokenHelp {
     switch (this) {

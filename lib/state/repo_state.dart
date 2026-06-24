@@ -62,6 +62,15 @@ class RepoState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The branch currently hovered in the sidebar, used to highlight its
+  /// associated commit rows in the graph (when that setting is enabled).
+  String? hoverBranch;
+  void setHoverBranch(String? b) {
+    if (hoverBranch == b) return;
+    hoverBranch = b;
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     branchFilter.dispose();

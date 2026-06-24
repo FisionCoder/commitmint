@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/integration.dart';
 import '../../services/integration_service.dart';
 import '../../state/app_state.dart';
 import '../../theme/app_theme.dart';
 import '../launchpad/launchpad_view.dart';
+import '../widgets/notifier.dart';
 import 'repo_browser_dialog.dart';
 
 /// Connect form + saved-instance list for any [ProviderType]. Adapts its
@@ -40,6 +42,24 @@ class _IntegrationPanelState extends State<IntegrationPanel> {
     super.dispose();
   }
 
+  /// Opens the provider's sign-in + token-creation page in the system browser,
+  /// then focuses the token field so the user can paste it back.
+  Future<void> _openProviderLogin() async {
+    final url = _p.tokenCreateUrl(_host.text);
+    final ok = await launchUrl(Uri.parse(url),
+        mode: LaunchMode.externalApplication);
+    if (!mounted) return;
+    if (ok) {
+      _hostFocus.requestFocus();
+      notify(context, 'Opened ${_p.label} in your browser — '
+          'create a ${_p.secretLabel.toLowerCase()} and paste it below.',
+          icon: Icons.open_in_browser, iconColor: AppColors.accentTeal);
+    } else {
+      notify(context, 'Could not open the browser. Visit: $url',
+          icon: Icons.error, iconColor: AppColors.red);
+    }
+  }
+
   Future<void> _connect() async {
     setState(() {
       _connecting = true;
@@ -71,10 +91,8 @@ class _IntegrationPanelState extends State<IntegrationPanel> {
         _principal.clear();
         _secret.clear();
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Connected to ${instance.title}'),
-        behavior: SnackBarBehavior.floating,
-      ));
+      notify(context, 'Connected to ${instance.title}',
+          icon: Icons.check_circle, iconColor: AppColors.green);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -97,7 +115,7 @@ class _IntegrationPanelState extends State<IntegrationPanel> {
         const SizedBox(height: 28),
         _statusCard(instances.length),
         const SizedBox(height: 28),
-        const Center(
+        Center(
           child: Text('or',
               style: TextStyle(
                   fontSize: 15,
@@ -110,7 +128,7 @@ class _IntegrationPanelState extends State<IntegrationPanel> {
           const SizedBox(height: 40),
           Row(
             children: [
-              const Text('Saved Connections',
+              Text('Saved Connections',
                   style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
@@ -122,7 +140,7 @@ class _IntegrationPanelState extends State<IntegrationPanel> {
                     color: AppColors.surfaceRaised,
                     borderRadius: BorderRadius.circular(10)),
                 child: Text('${instances.length}',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12, color: AppColors.textSecondary)),
               ),
             ],
@@ -148,7 +166,7 @@ class _IntegrationPanelState extends State<IntegrationPanel> {
           Container(
             width: 46,
             height: 46,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
                 shape: BoxShape.circle, color: AppColors.surfaceRaised),
             child: Icon(connected ? Icons.check : Icons.person_outline,
                 color: connected ? AppColors.green : AppColors.textMuted,
@@ -177,14 +195,15 @@ class _IntegrationPanelState extends State<IntegrationPanel> {
               ],
             ),
           ),
-          OutlinedButton(
-            onPressed: () => _hostFocus.requestFocus(),
+          OutlinedButton.icon(
+            onPressed: _openProviderLogin,
+            icon: const Icon(Icons.open_in_browser, size: 16),
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.green,
-              side: const BorderSide(color: AppColors.green),
+              side: BorderSide(color: AppColors.green),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
-            child: Text('Connect to ${_p.label}'),
+            label: Text('Connect to ${_p.label}'),
           ),
         ],
       ),
@@ -227,6 +246,23 @@ class _IntegrationPanelState extends State<IntegrationPanel> {
             onSubmitted: (_) => _connect(),
           ),
           help: _p.tokenHelp,
+          onHelpTap: _openProviderLogin,
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 180, top: 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _openProviderLogin,
+              icon: const Icon(Icons.open_in_new, size: 15),
+              style: TextButton.styleFrom(
+                  foregroundColor: AppColors.accentTeal,
+                  padding: EdgeInsets.zero,
+                  textStyle: const TextStyle(fontSize: 12.5)),
+              label: Text('Open ${_p.label} to create a '
+                  '${_p.secretLabel.toLowerCase()}'),
+            ),
+          ),
         ),
         const SizedBox(height: 18),
         Padding(
@@ -239,7 +275,7 @@ class _IntegrationPanelState extends State<IntegrationPanel> {
                   onPressed: _connecting ? null : _connect,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.green,
-                    side: const BorderSide(color: AppColors.green),
+                    side: BorderSide(color: AppColors.green),
                     padding: const EdgeInsets.symmetric(horizontal: 28),
                   ),
                   child: _connecting
@@ -254,7 +290,7 @@ class _IntegrationPanelState extends State<IntegrationPanel> {
                 const SizedBox(width: 16),
                 Flexible(
                   child: Text(_error!,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12.5, color: AppColors.red)),
                 ),
               ],
@@ -265,7 +301,8 @@ class _IntegrationPanelState extends State<IntegrationPanel> {
     );
   }
 
-  Widget _formRow(String label, Widget field, {String? help}) {
+  Widget _formRow(String label, Widget field,
+      {String? help, VoidCallback? onHelpTap}) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -277,15 +314,24 @@ class _IntegrationPanelState extends State<IntegrationPanel> {
               Flexible(
                 child: Text(label,
                     textAlign: TextAlign.end,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 14, color: AppColors.textPrimary)),
               ),
               if (help != null) ...[
                 const SizedBox(width: 6),
                 Tooltip(
                   message: help,
-                  child: const Icon(Icons.help_outline,
-                      size: 15, color: AppColors.accent),
+                  child: onHelpTap == null
+                      ? Icon(Icons.help_outline,
+                          size: 15, color: AppColors.accent)
+                      : MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            onTap: onHelpTap,
+                            child: Icon(Icons.help_outline,
+                                size: 15, color: AppColors.accent),
+                          ),
+                        ),
                 ),
               ],
               const SizedBox(width: 16),
@@ -330,7 +376,7 @@ class _InstanceCard extends StatelessWidget {
               color: AppColors.accentTeal.withValues(alpha: 0.16),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.cloud_done_outlined,
+            child: Icon(Icons.cloud_done_outlined,
                 color: AppColors.accentTeal, size: 22),
           ),
           const SizedBox(width: 16),
@@ -345,14 +391,14 @@ class _InstanceCard extends StatelessWidget {
                 Text(
                   '${instance.host}'
                   '${instance.userName != null ? '  •  ${instance.userName}' : ''}',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 12.5, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   'Added ${DateFormat('MMM d, yyyy').format(instance.addedAt)}'
                   '${hostsRepos && repoCount > 0 ? '  •  $repoCount repo${repoCount == 1 ? '' : 's'} cloned' : ''}',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 11.5, color: AppColors.textMuted),
                 ),
               ],
@@ -370,7 +416,7 @@ class _InstanceCard extends StatelessWidget {
               ),
             )
           else
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(horizontal: 6),
               child: Text('Issue tracking',
                   style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
@@ -392,10 +438,7 @@ class _InstanceCard extends StatelessWidget {
     final secret = await app.secretFor(inst.id);
     if (secret == null) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Stored token not found — reconnect this instance.'),
-          behavior: SnackBarBehavior.floating,
-        ));
+        notify(context, 'Stored token not found — reconnect this instance.');
       }
       return;
     }

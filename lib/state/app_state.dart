@@ -53,7 +53,10 @@ class AppState extends ChangeNotifier {
         ? 0
         : _authorSlots.values.reduce((a, b) => a > b ? a : b) + 1;
 
-    _restoreTabs(await _storage.loadTabs());
+    // Honor the "Remember tabs" setting: skip restoring saved repo tabs when off.
+    final settings = await _storage.loadSettings();
+    final rememberTabs = settings['rememberTabs'] as bool? ?? true;
+    _restoreTabs(rememberTabs ? await _storage.loadTabs() : const {});
     notifyListeners();
   }
 

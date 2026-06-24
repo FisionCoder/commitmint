@@ -9,19 +9,20 @@ import '../../models/git_commit.dart';
 import '../../services/git_service.dart';
 import '../../state/repo_state.dart';
 import '../../theme/app_theme.dart';
+import '../widgets/notifier.dart';
 import 'git_links.dart';
 import 'repo_actions.dart';
 
-final commitMenuStyle = MenuStyle(
-  backgroundColor: const WidgetStatePropertyAll(AppColors.surfaceRaised),
-  surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-  shadowColor: WidgetStatePropertyAll(Colors.black.withValues(alpha: 0.4)),
-  padding:
-      const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 4)),
-  shape: WidgetStatePropertyAll(
-    RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-  ),
-);
+MenuStyle get commitMenuStyle => MenuStyle(
+      backgroundColor: WidgetStatePropertyAll(AppColors.surfaceRaised),
+      surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+      shadowColor: WidgetStatePropertyAll(Colors.black.withValues(alpha: 0.4)),
+      padding:
+          const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 4)),
+      shape: WidgetStatePropertyAll(
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      ),
+    );
 
 Widget _leaf(String label, VoidCallback onTap, {Color? color}) {
   return MenuItemButton(
@@ -53,7 +54,7 @@ Widget _submenu(String label, List<Widget> children) {
   );
 }
 
-const _divider = Padding(
+final _divider = Padding(
   padding: EdgeInsets.symmetric(vertical: 4),
   child: Divider(height: 1, thickness: 1, color: AppColors.border),
 );
@@ -357,12 +358,7 @@ Future<void> _dispatch(BuildContext context, RepoState state,
 }
 
 void _toast(BuildContext context, String message) {
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(message),
-    backgroundColor: AppColors.surfaceRaised,
-    behavior: SnackBarBehavior.floating,
-    duration: const Duration(seconds: 2),
-  ));
+  notify(context, message, duration: const Duration(seconds: 2));
 }
 
 Future<bool> _confirm(

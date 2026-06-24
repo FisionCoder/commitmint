@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../../state/settings_state.dart';
 import '../../theme/app_theme.dart';
 
 /// Single-line text that ellipsizes, and shows a tooltip with the full content
@@ -72,14 +74,17 @@ class _ToolbarButtonState extends State<ToolbarButton> {
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onTap != null;
-    return MouseRegion(
+    final showLabel = context.select<SettingsState, bool>(
+        (s) => s.showToolbarLabels);
+    final button = MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         onTap: widget.onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: EdgeInsets.symmetric(
+              horizontal: 10, vertical: showLabel ? 6 : 9),
           decoration: BoxDecoration(
             color: _hover && enabled
                 ? AppColors.surfaceRaised
@@ -101,18 +106,22 @@ class _ToolbarButtonState extends State<ToolbarButton> {
                     Positioned(right: -6, top: -4, child: widget.badge!),
                 ],
               ),
-              const SizedBox(height: 3),
-              Text(widget.label,
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: enabled
-                          ? AppColors.textSecondary
-                          : AppColors.textMuted)),
+              if (showLabel) ...[
+                const SizedBox(height: 3),
+                Text(widget.label,
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: enabled
+                            ? AppColors.textSecondary
+                            : AppColors.textMuted)),
+              ],
             ],
           ),
         ),
       ),
     );
+    // With labels hidden, surface the name as a tooltip instead.
+    return showLabel ? button : Tooltip(message: widget.label, child: button);
   }
 }
 
@@ -210,7 +219,7 @@ class SidebarSection extends StatelessWidget {
                 Icon(icon, size: 14, color: AppColors.textMuted),
                 const SizedBox(width: 8),
                 Text(title,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 0.6,
@@ -218,7 +227,7 @@ class SidebarSection extends StatelessWidget {
                 const Spacer(),
                 if (count != null)
                   Text('$count',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 11, color: AppColors.textMuted)),
               ],
             ),
@@ -243,8 +252,12 @@ class UserAvatar extends StatelessWidget {
 
   /// Overrides the auto-generated colour (e.g. an evenly-spaced palette colour
   /// so users are clearly distinct). The sprite shape still derives from the
-  /// author hash.
+  /// author hash unless [cells] is given.
   final Color? color;
+
+  /// An explicit 7-row x 5-col on/off grid (a customised avatar). When null the
+  /// grid is derived deterministically from the author's email/name.
+  final List<List<bool>>? cells;
 
   const UserAvatar({
     super.key,
@@ -253,6 +266,7 @@ class UserAvatar extends StatelessWidget {
     this.size = 18,
     this.showTooltip = true,
     this.color,
+    this.cells,
   });
 
   String get _key =>
@@ -269,7 +283,23 @@ class UserAvatar extends StatelessWidget {
   }
 
   /// 5-wide x 7-tall horizontally-symmetric on/off grid (the "sprite").
-  List<List<bool>> _grid(int hash) {
+  List<List<bool>> _grid(int hash) => gridFromHash(hash);
+
+  /// FNV-1a hash of an author identity (email preferred, else name).
+  static int hashFor(String name, String email) {
+    var key = (email.trim().isNotEmpty ? email : name).toLowerCase().trim();
+    if (key.isEmpty) key = '?';
+    var h = 2166136261;
+    for (final c in key.codeUnits) {
+      h ^= c;
+      h = (h * 16777619) & 0xFFFFFFFF;
+    }
+    return h;
+  }
+
+  /// The deterministic symmetric sprite grid for a hash (used to seed the
+  /// avatar editor from the current generated icon).
+  static List<List<bool>> gridFromHash(int hash) {
     final g = List.generate(7, (_) => List<bool>.filled(5, false));
     var bit = 0;
     for (var r = 0; r < 7; r++) {
@@ -293,10 +323,24 @@ class UserAvatar extends StatelessWidget {
         .toColor();
   }
 
+  /// Up to two uppercase initials derived from the name (or email).
+  String get _initials {
+    final source = name.trim().isNotEmpty ? name.trim() : email.trim();
+    if (source.isEmpty) return '?';
+    final words =
+        source.split(RegExp(r'[\s@._-]+')).where((w) => w.isNotEmpty).toList();
+    if (words.isEmpty) return source[0].toUpperCase();
+    if (words.length == 1) return words.first[0].toUpperCase();
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+
   @override
   Widget build(BuildContext context) {
     final hash = _hash;
     final radius = size * 0.3;
+    final useInitials =
+        context.watch<SettingsState>().useInitialsAvatars;
+    final tile = color ?? _color;
     final avatar = Container(
       width: size,
       height: size,
@@ -316,13 +360,21 @@ class UserAvatar extends StatelessWidget {
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(radius - 1),
-        child: CustomPaint(
-          painter: _SpritePainter(_grid(hash), color ?? _color),
-          size: Size.square(size),
-        ),
-      ),
+      child: useInitials
+          ? Center(
+              child: Text(_initials,
+                  style: TextStyle(
+                      fontSize: size * 0.42,
+                      fontWeight: FontWeight.w700,
+                      color: tile)),
+            )
+          : ClipRRect(
+              borderRadius: BorderRadius.circular(radius - 1),
+              child: CustomPaint(
+                painter: _SpritePainter(cells ?? _grid(hash), tile),
+                size: Size.square(size),
+              ),
+            ),
     );
     if (!showTooltip) return avatar;
     final msg = email.trim().isNotEmpty && email.trim() != name.trim()

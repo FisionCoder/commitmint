@@ -6,12 +6,15 @@ import 'package:window_manager/window_manager.dart';
 import '../models/git_repository.dart';
 import '../state/app_state.dart';
 import '../state/layout_state.dart';
+import '../state/settings_state.dart';
 import '../theme/app_theme.dart';
 import 'integrations/integrations_view.dart';
 import 'launchpad/launchpad_view.dart';
 import 'repo/repo_view.dart';
+import 'settings/settings_screen.dart';
 import 'widgets/common.dart';
 import 'widgets/mint_leaf.dart';
+import 'widgets/profile_avatar.dart';
 
 // --------------------------------------------------------- View actions ----
 /// Toggles the OS window between full screen and normal.
@@ -83,7 +86,7 @@ Future<void> showTabsList(BuildContext context) async {
             selected: i == app.activeTabIndex,
             selectedTileColor: AppColors.selection,
             leading: Text('${i + 1}',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 12, color: AppColors.textMuted)),
             title: Text(app.tabTitle(app.tabs[i]),
                 style: const TextStyle(fontSize: 13)),
@@ -135,6 +138,8 @@ class HomeShell extends StatelessWidget {
       LogicalKeyboardKey.digit9,
     ];
     return {
+      const SingleActivator(LogicalKeyboardKey.comma, control: true): () =>
+          openSettings(context),
       const SingleActivator(LogicalKeyboardKey.keyF, control: true, shift: true):
           toggleFullScreen,
       const SingleActivator(LogicalKeyboardKey.tab, control: true):
@@ -184,8 +189,15 @@ class _MenuBar extends StatefulWidget {
 }
 
 class _MenuBarState extends State<_MenuBar> {
+  final MenuController _file = MenuController();
   final MenuController _edit = MenuController();
   final MenuController _view = MenuController();
+
+  void _closeAll() {
+    _file.close();
+    _edit.close();
+    _view.close();
+  }
 
   /// Click: toggle this menu (closing any other first).
   void _toggle(MenuController c) {
@@ -193,17 +205,15 @@ class _MenuBarState extends State<_MenuBar> {
       c.close();
       return;
     }
-    _edit.close();
-    _view.close();
+    _closeAll();
     c.open();
   }
 
   /// Hover: while one of the menus is already open, switch to the hovered one.
   void _hover(MenuController c) {
     if (c.isOpen) return;
-    if (!_edit.isOpen && !_view.isOpen) return;
-    _edit.close();
-    _view.close();
+    if (!_file.isOpen && !_edit.isOpen && !_view.isOpen) return;
+    _closeAll();
     c.open();
   }
 
@@ -215,7 +225,10 @@ class _MenuBarState extends State<_MenuBar> {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: [
-          const _StaticMenuLabel('File'),
+          _FileMenu(
+              controller: _file,
+              onTap: () => _toggle(_file),
+              onHover: () => _hover(_file)),
           _EditMenu(
               controller: _edit,
               onTap: () => _toggle(_edit),
@@ -225,9 +238,9 @@ class _MenuBarState extends State<_MenuBar> {
               onTap: () => _toggle(_view),
               onHover: () => _hover(_view)),
           const Spacer(),
-          const MintLeafLogo(size: 16),
+          const MintLeafLogo(size: 20),
           const SizedBox(width: 7),
-          const Text('Commit Mint',
+          Text('Commit Mint',
               style: TextStyle(
                   fontSize: 12,
                   color: AppColors.textSecondary,
@@ -239,24 +252,53 @@ class _MenuBarState extends State<_MenuBar> {
   }
 }
 
-class _StaticMenuLabel extends StatelessWidget {
-  final String label;
-  const _StaticMenuLabel(this.label);
+/// The File menu — Settings/Preferences and Exit.
+class _FileMenu extends StatelessWidget {
+  final MenuController controller;
+  final VoidCallback onTap;
+  final VoidCallback onHover;
+  const _FileMenu(
+      {required this.controller, required this.onTap, required this.onHover});
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Text(label,
-          style:
-              const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+    return MenuAnchor(
+      controller: controller,
+      style: _viewMenuStyle,
+      menuChildren: [
+        MenuItemButton(
+          onPressed: () => openSettings(context),
+          leadingIcon: Icon(Icons.settings_outlined,
+              size: 15, color: AppColors.textSecondary),
+          trailingIcon: Padding(
+            padding: EdgeInsets.only(left: 24),
+            child: Text('Ctrl+,',
+                style: TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
+          ),
+          child: const Text('Settings', style: TextStyle(fontSize: 13)),
+        ),
+        Padding(
+          padding: EdgeInsets.symmetric(vertical: 4),
+          child: Divider(height: 1, color: AppColors.border),
+        ),
+        MenuItemButton(
+          onPressed: () => windowManager.close(),
+          child: const Text('Exit', style: TextStyle(fontSize: 13)),
+        ),
+      ],
+      builder: (context, controller, child) => _MenuBarButton(
+        label: 'File',
+        onTap: onTap,
+        onHover: onHover,
+      ),
     );
   }
 }
 
-const _viewMenuStyle = MenuStyle(
-  backgroundColor: WidgetStatePropertyAll(AppColors.surfaceRaised),
-  padding: WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 4)),
-);
+MenuStyle get _viewMenuStyle => MenuStyle(
+      backgroundColor: WidgetStatePropertyAll(AppColors.surfaceRaised),
+      padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 4)),
+    );
 
 class _ViewMenu extends StatefulWidget {
   final MenuController controller;
@@ -333,7 +375,7 @@ class _ViewMenuState extends State<_ViewMenu> {
           : SizedBox(
               width: 18,
               child: checked
-                  ? const Icon(Icons.check, size: 15, color: AppColors.accent)
+                  ? Icon(Icons.check, size: 15, color: AppColors.accent)
                   : null,
             ),
       trailingIcon: shortcut.isEmpty
@@ -341,7 +383,7 @@ class _ViewMenuState extends State<_ViewMenu> {
           : Padding(
               padding: const EdgeInsets.only(left: 24),
               child: Text(shortcut,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 11.5, color: AppColors.textMuted)),
             ),
       child: Text(label, style: const TextStyle(fontSize: 13)),
@@ -404,7 +446,7 @@ class _EditMenuState extends State<_EditMenu> {
       trailingIcon: Padding(
         padding: const EdgeInsets.only(left: 24),
         child: Text(shortcut,
-            style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
+            style: TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
       ),
       child: Text(label, style: const TextStyle(fontSize: 13)),
     );
@@ -420,7 +462,7 @@ class _EditMenuState extends State<_EditMenu> {
             const UndoTextIntent(SelectionChangedCause.keyboard)),
         _item('Redo', 'Ctrl+Y',
             const RedoTextIntent(SelectionChangedCause.keyboard)),
-        const Padding(
+        Padding(
           padding: EdgeInsets.symmetric(vertical: 4),
           child: Divider(height: 1, color: AppColors.border),
         ),
@@ -470,7 +512,7 @@ class _MenuBarButtonState extends State<_MenuBarButton> {
             borderRadius: BorderRadius.circular(4),
           ),
           child: Text(widget.label,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 12.5, color: AppColors.textSecondary)),
         ),
       ),
@@ -486,7 +528,7 @@ class _TabStrip extends StatelessWidget {
     final app = context.watch<AppState>();
     return Container(
       height: 40,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.titleBar,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
@@ -510,9 +552,13 @@ class _TabStrip extends StatelessWidget {
             onTap: () => app.openIntegrations(),
           ),
           const SizedBox(width: 4),
-          const IconAction(
-              icon: Icons.notifications_none, tooltip: 'Notifications'),
-          const IconAction(icon: Icons.settings_outlined, tooltip: 'Settings'),
+          IconAction(
+            icon: Icons.settings_outlined,
+            tooltip: 'Settings',
+            onTap: () => openSettings(context),
+          ),
+          const SizedBox(width: 4),
+          const _ProfileMenu(),
           const SizedBox(width: 8),
         ],
       ),
@@ -568,7 +614,7 @@ class _Tab extends StatelessWidget {
             top: BorderSide(
                 color: active ? AppColors.accent : Colors.transparent,
                 width: 2),
-            right: const BorderSide(color: AppColors.borderSubtle),
+            right: BorderSide(color: AppColors.borderSubtle),
           ),
         ),
         child: Row(
@@ -596,7 +642,7 @@ class _Tab extends StatelessWidget {
               InkWell(
                 onTap: () => app.closeTab(index),
                 borderRadius: BorderRadius.circular(3),
-                child: const Icon(Icons.close,
+                child: Icon(Icons.close,
                     size: 13, color: AppColors.textMuted),
               )
             else
@@ -630,9 +676,105 @@ class _AddTabButton extends StatelessWidget {
           app.selectTab(0);
         }
       },
-      child: const Padding(
+      child: Padding(
         padding: EdgeInsets.symmetric(horizontal: 12),
         child: Icon(Icons.add, size: 18, color: AppColors.textSecondary),
+      ),
+    );
+  }
+}
+
+/// Top-right current-profile chip with a dropdown to switch profiles or jump to
+/// the Profiles settings page.
+class _ProfileMenu extends StatelessWidget {
+  const _ProfileMenu();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<SettingsState>();
+    final active = settings.activeProfile;
+    return PopupMenuButton<String>(
+      tooltip: 'Profile: ${active.name}',
+      color: AppColors.surfaceRaised,
+      offset: const Offset(0, 36),
+      itemBuilder: (_) => [
+        for (final p in settings.profiles)
+          PopupMenuItem<String>(
+            value: 'switch:${p.id}',
+            height: 44,
+            child: Row(
+              children: [
+                ProfileAvatar(profile: p, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(p.name,
+                          style: const TextStyle(fontSize: 13)),
+                      if (p.authorEmail.isNotEmpty)
+                        Text(p.authorEmail,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 11, color: AppColors.textMuted)),
+                    ],
+                  ),
+                ),
+                if (p.id == settings.activeProfileId)
+                  Icon(Icons.check, size: 16, color: AppColors.accentTeal),
+              ],
+            ),
+          ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'manage',
+          height: 40,
+          child: Row(
+            children: [
+              Icon(Icons.manage_accounts_outlined,
+                  size: 16, color: AppColors.textSecondary),
+              SizedBox(width: 10),
+              Text('Manage Profiles', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+      ],
+      onSelected: (v) {
+        if (v == 'manage') {
+          openSettings(context, initialTab: 1); // Profiles tab
+        } else if (v.startsWith('switch:')) {
+          settings.setActiveProfile(v.substring('switch:'.length));
+        }
+      },
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(5),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ProfileAvatar(profile: active, size: 20),
+              const SizedBox(width: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 140),
+                child: Text(active.name,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: TextStyle(
+                        fontSize: 12.5, color: AppColors.textPrimary)),
+              ),
+              Icon(Icons.arrow_drop_down,
+                  size: 18, color: AppColors.textSecondary),
+            ],
+          ),
+        ),
       ),
     );
   }

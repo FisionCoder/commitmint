@@ -13,6 +13,7 @@ class StorageService {
   static const _kAzure = 'azure_instances'; // legacy key (migrated forward)
   static const _kIntegrations = 'integrations';
   static const _kLayout = 'layout';
+  static const _kSettings = 'settings';
   static const _kTabs = 'open_tabs';
   static const _kAuthorColors = 'author_colors';
   // Secret key prefix kept as the legacy name so existing Azure tokens resolve.
@@ -53,6 +54,18 @@ class StorageService {
   Future<void> saveLayout(Map<String, dynamic> layout) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kLayout, jsonEncode(layout));
+  }
+
+  Future<Map<String, dynamic>> loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kSettings);
+    if (raw == null) return {};
+    return jsonDecode(raw) as Map<String, dynamic>;
+  }
+
+  Future<void> saveSettings(Map<String, dynamic> settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kSettings, jsonEncode(settings));
   }
 
   final _secure = const FlutterSecureStorage(

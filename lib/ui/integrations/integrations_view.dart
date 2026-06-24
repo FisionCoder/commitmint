@@ -64,7 +64,7 @@ class _IntegrationsViewState extends State<IntegrationsView> {
   Widget _providerRail() {
     final app = context.watch<AppState>();
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surfaceAlt,
         border: Border(right: BorderSide(color: AppColors.border)),
       ),

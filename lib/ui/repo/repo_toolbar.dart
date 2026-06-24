@@ -133,7 +133,7 @@ class RepoToolbar extends StatelessWidget {
 
     return Container(
       height: 64,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
@@ -208,7 +208,7 @@ class _LabeledDropdown extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(label,
-            style: const TextStyle(fontSize: 10.5, color: AppColors.textMuted)),
+            style: TextStyle(fontSize: 10.5, color: AppColors.textMuted)),
         const SizedBox(height: 2),
         PopupMenuButton<String>(
           enabled: items.isNotEmpty,
@@ -248,14 +248,14 @@ class _LabeledDropdown extends StatelessWidget {
                   child: Text(value,
                       overflow: TextOverflow.ellipsis,
                       maxLines: 1,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                           color: AppColors.textPrimary)),
                 ),
               ),
               if (items.isNotEmpty)
-                const Icon(Icons.arrow_drop_down,
+                Icon(Icons.arrow_drop_down,
                     size: 18, color: AppColors.textSecondary),
             ],
           ),

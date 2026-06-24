@@ -9,6 +9,7 @@ import '../../services/integration_service.dart';
 import '../../state/app_state.dart';
 import '../../theme/app_theme.dart';
 import '../launchpad/launchpad_view.dart';
+import '../widgets/notifier.dart';
 
 class RepoBrowserDialog extends StatefulWidget {
   final Integration instance;
@@ -40,7 +41,6 @@ class _RepoBrowserDialogState extends State<RepoBrowserDialog> {
 
     setState(() => _cloningId = repo.id);
     final app = context.read<AppState>();
-    final messenger = ScaffoldMessenger.of(context);
     final dest = '$parent/${repo.name}';
     try {
       await GitService.clone(repo.cloneUrl, dest,
@@ -55,17 +55,13 @@ class _RepoBrowserDialogState extends State<RepoBrowserDialog> {
       ));
       if (!mounted) return;
       Navigator.pop(context);
-      messenger.showSnackBar(SnackBar(
-        content: Text('Cloned ${repo.name}'),
-        behavior: SnackBarBehavior.floating,
-      ));
+      notify(context, 'Cloned ${repo.name}',
+          icon: Icons.check_circle, iconColor: AppColors.green);
     } catch (e) {
       if (!mounted) return;
       setState(() => _cloningId = null);
-      messenger.showSnackBar(SnackBar(
-        content: Text('Clone failed: $e'),
-        backgroundColor: AppColors.red.withValues(alpha: 0.95),
-      ));
+      notify(context, 'Clone failed: $e',
+          icon: Icons.error, iconColor: AppColors.red);
     }
   }
 
@@ -84,7 +80,7 @@ class _RepoBrowserDialogState extends State<RepoBrowserDialog> {
               padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
               child: Row(
                 children: [
-                  const Icon(Icons.cloud_done_outlined,
+                  Icon(Icons.cloud_done_outlined,
                       color: AppColors.accentTeal),
                   const SizedBox(width: 10),
                   Expanded(
@@ -94,7 +90,7 @@ class _RepoBrowserDialogState extends State<RepoBrowserDialog> {
                         Text(widget.instance.title,
                             style: const TextStyle(
                                 fontSize: 16, fontWeight: FontWeight.w600)),
-                        const Text('Select a repository to clone',
+                        Text('Select a repository to clone',
                             style: TextStyle(
                                 fontSize: 12.5,
                                 color: AppColors.textSecondary)),
@@ -141,7 +137,7 @@ class _RepoBrowserDialogState extends State<RepoBrowserDialog> {
                               .contains(_filter.toLowerCase()))
                       .toList();
                   if (repos.isEmpty) {
-                    return const Center(
+                    return Center(
                       child: Text('No repositories found',
                           style: TextStyle(color: AppColors.textMuted)),
                     );
@@ -169,11 +165,11 @@ class _RepoBrowserDialogState extends State<RepoBrowserDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off, color: AppColors.red, size: 32),
+            Icon(Icons.cloud_off, color: AppColors.red, size: 32),
             const SizedBox(height: 12),
             Text(message,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 13, color: AppColors.textSecondary)),
           ],
         ),
@@ -206,7 +202,7 @@ class _RepoRowState extends State<_RepoRow> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
         child: Row(
           children: [
-            const Icon(Icons.account_tree_outlined,
+            Icon(Icons.account_tree_outlined,
                 size: 16, color: AppColors.accent),
             const SizedBox(width: 12),
             Expanded(
@@ -219,24 +215,24 @@ class _RepoRowState extends State<_RepoRow> {
                   Row(
                     children: [
                       if (widget.repo.group.isNotEmpty) ...[
-                        const Icon(Icons.folder_outlined,
+                        Icon(Icons.folder_outlined,
                             size: 11, color: AppColors.textMuted),
                         const SizedBox(width: 4),
                         Flexible(
                           child: Text(widget.repo.group,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 11.5, color: AppColors.textMuted)),
                         ),
                       ],
                       if (widget.repo.defaultBranch != null) ...[
                         const SizedBox(width: 10),
-                        const Icon(Icons.call_split,
+                        Icon(Icons.call_split,
                             size: 11, color: AppColors.textMuted),
                         const SizedBox(width: 3),
                         Text(widget.repo.defaultBranch!,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 11.5, color: AppColors.textMuted)),
                       ],
                     ],
@@ -256,7 +252,7 @@ class _RepoRowState extends State<_RepoRow> {
                     : () => widget.onClone(widget.repo),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.accent,
-                  side: const BorderSide(color: AppColors.accent),
+                  side: BorderSide(color: AppColors.accent),
                   padding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   minimumSize: Size.zero,

@@ -6,6 +6,7 @@ import '../../services/diff_parser.dart';
 import '../../state/repo_state.dart';
 import '../../theme/app_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/notifier.dart';
 import 'repo_actions.dart';
 
 const _mono = TextStyle(
@@ -58,7 +59,7 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
-          const Icon(Icons.edit, size: 13, color: AppColors.amber),
+          Icon(Icons.edit, size: 13, color: AppColors.amber),
           const SizedBox(width: 8),
           Expanded(
             child: Tooltip(
@@ -72,10 +73,10 @@ class _Header extends StatelessWidget {
                     if (file.directory.isNotEmpty)
                       TextSpan(
                           text: '${file.directory}/',
-                          style: const TextStyle(color: AppColors.textMuted)),
+                          style: TextStyle(color: AppColors.textMuted)),
                     TextSpan(
                         text: file.fileName,
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: AppColors.textPrimary,
                             fontWeight: FontWeight.w600)),
                   ],
@@ -84,7 +85,7 @@ class _Header extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          const Text('UTF-8',
+          Text('UTF-8',
               style: TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
           const SizedBox(width: 10),
           if (!file.staged)
@@ -175,11 +176,7 @@ class _SubToolbar extends StatelessWidget {
   }
 
   void _notImpl(BuildContext context, String what) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('$what is not wired up in this build.'),
-      backgroundColor: AppColors.surfaceRaised,
-      behavior: SnackBarBehavior.floating,
-    ));
+    notify(context, '$what is not wired up in this build.');
   }
 }
 
@@ -512,7 +509,7 @@ class _EditorState extends State<_Editor> {
           ),
         ),
         Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: AppColors.surface,
             border: Border(top: BorderSide(color: AppColors.border)),
           ),
@@ -693,7 +690,7 @@ class _Empty extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Text(text,
-          style: const TextStyle(fontSize: 13, color: AppColors.textMuted)),
+          style: TextStyle(fontSize: 13, color: AppColors.textMuted)),
     );
   }
 }

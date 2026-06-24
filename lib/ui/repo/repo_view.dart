@@ -80,23 +80,37 @@ class RepoView extends StatelessWidget {
       children: [
         const RepoToolbar(),
         Expanded(
-          child: Column(
-            children: [
-              Expanded(child: panesArea),
-              if (terminalVisible) ...[
-                ResizeHandle(
-                  vertical: true,
-                  onDelta: (dy) =>
-                      layout.setTerminalHeight(layout.terminalHeight - dy),
-                  onEnd: layout.persist,
-                ),
-                SizedBox(
-                  height: layout.terminalHeight,
-                  child: TerminalPanel(workingDirectory: repoPath),
-                ),
-              ],
-            ],
-          ),
+          child: terminalVisible
+              ? LayoutBuilder(builder: (context, c) {
+                  // Reserve a minimum for the graph/panes area and a minimum for
+                  // the terminal. The terminal yields space first when the window
+                  // is short, so the panes above never overflow.
+                  const handleH = 6.0;
+                  const panesMin = 160.0;
+                  const terminalMin = 100.0;
+                  final avail = c.maxHeight - handleH;
+                  // Cap the terminal so panes keep [panesMin]; never below
+                  // [terminalMin], and never taller than the space available.
+                  final cap = (avail - panesMin)
+                      .clamp(terminalMin, avail.clamp(terminalMin, double.infinity));
+                  final termH = layout.terminalHeight.clamp(terminalMin, cap);
+                  return Column(
+                    children: [
+                      Expanded(child: panesArea),
+                      ResizeHandle(
+                        vertical: true,
+                        onDelta: (dy) => layout
+                            .setTerminalHeight(layout.terminalHeight - dy),
+                        onEnd: layout.persist,
+                      ),
+                      SizedBox(
+                        height: termH,
+                        child: TerminalPanel(workingDirectory: repoPath),
+                      ),
+                    ],
+                  );
+                })
+              : panesArea,
         ),
       ],
     );

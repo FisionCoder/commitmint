@@ -9,6 +9,7 @@ import '../../state/app_state.dart';
 import '../../theme/app_theme.dart';
 import '../repo/repo_actions.dart';
 import '../widgets/mint_leaf.dart';
+import '../widgets/notifier.dart';
 
 class LaunchpadView extends StatelessWidget {
   const LaunchpadView({super.key});
@@ -29,19 +30,9 @@ class LaunchpadView extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceRaised,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: const MintLeafLogo(size: 34),
-                  ),
+                  const MintLeafLogo(size: 46),
                   const SizedBox(width: 14),
-                  const Column(
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Commit Mint',
@@ -91,14 +82,14 @@ class LaunchpadView extends StatelessWidget {
               const SizedBox(height: 32),
               Row(
                 children: [
-                  const Text('Repositories',
+                  Text('Repositories',
                       style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
                           color: AppColors.textPrimary)),
                   const SizedBox(width: 8),
                   Text('${app.repositories.length}',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 13, color: AppColors.textMuted)),
                 ],
               ),
@@ -123,7 +114,7 @@ class LaunchpadView extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.border),
       ),
-      child: const Column(
+      child: Column(
         children: [
           Icon(Icons.inbox_outlined, size: 36, color: AppColors.textMuted),
           SizedBox(height: 12),
@@ -145,10 +136,7 @@ class LaunchpadView extends StatelessWidget {
     final isRepo = await GitService.isGitRepo(dir);
     if (!isRepo) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('That folder is not a Git repository.'),
-          backgroundColor: AppColors.surfaceRaised,
-        ));
+        notify(context, 'That folder is not a Git repository.');
       }
       return;
     }
@@ -179,15 +167,10 @@ class LaunchpadView extends StatelessWidget {
     final dest = '$parent/$repoName';
     if (!context.mounted) return;
 
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(SnackBar(
-      content: Text('Cloning $repoName…'),
-      backgroundColor: AppColors.surfaceRaised,
-      duration: const Duration(seconds: 30),
-    ));
+    notify(context, 'Cloning $repoName…',
+        icon: Icons.downloading, duration: const Duration(seconds: 30));
     try {
       await GitService.clone(url.trim(), dest);
-      messenger.hideCurrentSnackBar();
       await app.addRepository(GitRepository(
         id: genId(),
         name: repoName,
@@ -195,11 +178,10 @@ class LaunchpadView extends StatelessWidget {
         remoteUrl: url.trim(),
       ));
     } catch (e) {
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(SnackBar(
-        content: Text('Clone failed: $e'),
-        backgroundColor: AppColors.red.withValues(alpha: 0.9),
-      ));
+      if (context.mounted) {
+        notify(context, 'Clone failed: $e',
+            icon: Icons.error, iconColor: AppColors.red);
+      }
     }
   }
 }
@@ -259,7 +241,7 @@ class _ActionCardState extends State<_ActionCard> {
                       fontSize: 15, fontWeight: FontWeight.w600)),
               const SizedBox(height: 2),
               Text(widget.subtitle,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 12, color: AppColors.textSecondary)),
             ],
           ),
@@ -308,7 +290,7 @@ class _RepoTileState extends State<_RepoTile> {
           ),
           child: Row(
             children: [
-              const Icon(Icons.account_tree_outlined,
+              Icon(Icons.account_tree_outlined,
                   size: 18, color: AppColors.accent),
               const SizedBox(width: 12),
               Expanded(
@@ -330,7 +312,7 @@ class _RepoTileState extends State<_RepoTile> {
                                     .withValues(alpha: 0.16),
                                 borderRadius: BorderRadius.circular(3)),
                             child: Text(providerLabel,
-                                style: const TextStyle(
+                                style: TextStyle(
                                     fontSize: 10,
                                     color: AppColors.accentTeal)),
                           ),
@@ -343,7 +325,7 @@ class _RepoTileState extends State<_RepoTile> {
                       child: Text(widget.repo.path,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 12, color: AppColors.textMuted)),
                     ),
                   ],

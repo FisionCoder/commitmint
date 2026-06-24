@@ -19,8 +19,18 @@ class GitService {
   static const _us = '\x1f'; // unit separator
   static const _rs = '\x1e'; // record separator
 
+  /// Whether the repository's working directory still exists on disk.
+  bool get workingDirExists => Directory(workingDir).existsSync();
+
   Future<ProcessResult> _run(List<String> args,
       {Map<String, String>? env}) async {
+    // Guard against a moved/deleted repo folder: a missing workingDirectory
+    // makes Process.run throw a Win32 "directory name is invalid" error, which
+    // would crash fire-and-forget callers. Fail gracefully instead.
+    if (!workingDirExists) {
+      return ProcessResult(
+          0, 128, '', 'fatal: repository folder not found: $workingDir');
+    }
     try {
       return await Process.run(
         'git',
@@ -32,7 +42,7 @@ class GitService {
         stderrEncoding: SystemEncoding(),
       );
     } on ProcessException catch (e) {
-      throw GitException('Failed to run git: ${e.message}');
+      return ProcessResult(0, 128, '', 'Failed to run git: ${e.message}');
     }
   }
 

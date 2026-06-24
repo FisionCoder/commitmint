@@ -220,6 +220,14 @@ class RepoState extends ChangeNotifier {
 
   Future<void> refreshAll() async {
     loadError = null;
+    // A repository whose folder was moved/deleted can't be read — surface a
+    // clear error instead of throwing from the git subprocess.
+    if (!git.workingDirExists) {
+      loadError = 'Repository folder not found:\n${repo.path}';
+      loading = false;
+      notifyListeners();
+      return;
+    }
     try {
       final results = await Future.wait([
         git.currentBranch(),

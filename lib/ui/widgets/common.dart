@@ -89,7 +89,7 @@ class _ToolbarButtonState extends State<ToolbarButton> {
             color: _hover && enabled
                 ? AppColors.surfaceRaised
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(5),
+            borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -144,10 +144,10 @@ class Pill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pill = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(3),
+        borderRadius: BorderRadius.circular(6),
         border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Row(
@@ -481,6 +481,70 @@ class _ResizeHandleState extends State<ResizeHandle> {
         child: widget.vertical
             ? SizedBox(height: widget.thickness, child: Center(child: line))
             : SizedBox(width: widget.thickness, child: Center(child: line)),
+      ),
+    );
+  }
+}
+
+/// A primary (hero) button with a mint gradient fill and a soft glow. Disabled
+/// when [onPressed] is null.
+class GradientButton extends StatelessWidget {
+  final VoidCallback? onPressed;
+  final Widget child;
+  final double height;
+  const GradientButton(
+      {super.key, required this.onPressed, required this.child, this.height = 38});
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    return MouseRegion(
+      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 120),
+        opacity: enabled ? 1 : 0.55,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: enabled
+                ? AppColors.accentGradient
+                : LinearGradient(colors: [
+                    AppColors.surfaceRaised,
+                    AppColors.surfaceRaised
+                  ]),
+            borderRadius: BorderRadius.circular(9),
+            boxShadow: enabled
+                ? [
+                    BoxShadow(
+                      color: AppColors.accent.withValues(alpha: 0.35),
+                      blurRadius: 12,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onPressed,
+              borderRadius: BorderRadius.circular(9),
+              child: Container(
+                height: height,
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: DefaultTextStyle.merge(
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600),
+                  child: IconTheme.merge(
+                    data: const IconThemeData(color: Colors.white, size: 16),
+                    child: child,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

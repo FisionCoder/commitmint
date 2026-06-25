@@ -244,12 +244,14 @@ class _CommitGraphViewState extends State<CommitGraphView> {
                             if (showWip && index == 0) {
                               return _WipRow(gl: gl, state: state);
                             }
-                            final row = state.graphRows[index - base];
+                            final rowIndex = index - base;
+                            final row = state.graphRows[rowIndex];
                             return _CommitRow(
                               gl: gl,
                               row: row,
                               selected:
                                   state.selectedCommit?.hash == row.commit.hash,
+                              alt: rowIndex.isOdd,
                               onTap: () => state.selectCommit(row.commit),
                               onContextMenu: _openMenu,
                               highlight: state.commitSearch,
@@ -664,6 +666,9 @@ class _CommitRow extends StatefulWidget {
   /// Active search query — matching spans in the message are highlighted.
   final String highlight;
 
+  /// Odd rows get a faint tint for readability (zebra striping).
+  final bool alt;
+
   const _CommitRow({
     required this.gl,
     required this.row,
@@ -671,6 +676,7 @@ class _CommitRow extends StatefulWidget {
     required this.onTap,
     required this.onContextMenu,
     this.highlight = '',
+    this.alt = false,
   });
 
   @override
@@ -719,7 +725,9 @@ class _CommitRowState extends State<_CommitRow> {
             ? AppColors.selection
             : (_hover
                 ? AppColors.surfaceRaised.withValues(alpha: 0.5)
-                : Colors.transparent));
+                : (widget.alt
+                    ? AppColors.surfaceRaised.withValues(alpha: 0.04)
+                    : Colors.transparent)));
 
     // The full-height message cell. The "ghost" hover popover (gated by the UI
     // setting) is attached here only, so it appears solely over the commit
@@ -760,7 +768,11 @@ class _CommitRowState extends State<_CommitRow> {
     }
 
     final row = Container(
-      color: bg,
+      margin: const EdgeInsets.symmetric(vertical: 1),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
+      ),
       padding: const EdgeInsets.symmetric(horizontal: _rowHPad),
       child: Row(
         children: _columns(

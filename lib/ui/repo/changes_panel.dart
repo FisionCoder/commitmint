@@ -24,6 +24,7 @@ class ChangesPanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(left: BorderSide(color: AppColors.border)),
+        boxShadow: AppColors.elevation(y: 0, blur: 12, alpha: 0.12),
       ),
       child: state.selectingWip
           ? _WorkingChanges(state: state)
@@ -795,24 +796,16 @@ class _CommitBoxState extends State<_CommitBox> {
             decoration: const InputDecoration(hintText: 'Description'),
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            height: 38,
-            child: FilledButton(
-              onPressed: state.canCommit
-                  ? () => runRepoAction(context, state.doCommit,
-                      success: 'Commit created')
-                  : null,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.accent,
-                disabledBackgroundColor: AppColors.surfaceRaised,
-              ),
-              child: Text(
-                state.staged.isEmpty
-                    ? 'Stage Changes to Commit'
-                    : 'Commit ${state.staged.length} file(s)'
-                        '${state.currentBranch.isNotEmpty ? " to ${state.currentBranch}" : ""}',
-                style: const TextStyle(fontSize: 13),
-              ),
+          GradientButton(
+            onPressed: state.canCommit
+                ? () => runRepoAction(context, state.doCommit,
+                    success: 'Commit created')
+                : null,
+            child: Text(
+              state.staged.isEmpty
+                  ? 'Stage Changes to Commit'
+                  : 'Commit ${state.staged.length} file(s)'
+                      '${state.currentBranch.isNotEmpty ? " to ${state.currentBranch}" : ""}',
             ),
           ),
         ],

@@ -799,11 +799,18 @@ class _BranchRowState extends State<_BranchRow> {
             ? null
             : (d) => widget.onSecondaryTap!(d.globalPosition),
         child: Container(
-          color: b.isCurrent
-              ? AppColors.selectionRow
-              : (_hover ? AppColors.surfaceRaised : Colors.transparent),
+          margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          decoration: BoxDecoration(
+            color: b.isCurrent
+                ? AppColors.selectionRow
+                : (_hover ? AppColors.surfaceRaised : Colors.transparent),
+            borderRadius: BorderRadius.circular(7),
+          ),
           padding: EdgeInsets.only(
-              left: widget.indent, right: 8, top: 5, bottom: 5),
+              left: (widget.indent - 6).clamp(0, double.infinity),
+              right: 8,
+              top: 5,
+              bottom: 5),
           child: Row(
             children: [
               if (b.isCurrent)

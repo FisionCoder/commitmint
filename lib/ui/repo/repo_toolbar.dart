@@ -136,6 +136,7 @@ class RepoToolbar extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
+        boxShadow: AppColors.elevation(y: 2, blur: 8, alpha: 0.16),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Row(

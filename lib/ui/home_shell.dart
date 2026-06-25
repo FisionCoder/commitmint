@@ -111,13 +111,16 @@ class HomeShell extends StatelessWidget {
       child: Focus(
         autofocus: true,
         child: Scaffold(
-          backgroundColor: AppColors.background,
-          body: Column(
-            children: [
-              const _MenuBar(),
-              const _TabStrip(),
-              Expanded(child: _buildBody(context, app)),
-            ],
+          backgroundColor: Colors.transparent,
+          body: DecoratedBox(
+            decoration: BoxDecoration(gradient: AppColors.backgroundGradient),
+            child: Column(
+              children: [
+                const _MenuBar(),
+                const _TabStrip(),
+                Expanded(child: _buildBody(context, app)),
+              ],
+            ),
           ),
         ),
       ),
@@ -221,7 +224,7 @@ class _MenuBarState extends State<_MenuBar> {
   Widget build(BuildContext context) {
     return Container(
       height: 30,
-      color: AppColors.titleBar,
+      decoration: BoxDecoration(gradient: AppColors.titleBarGradient),
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: [
@@ -529,7 +532,7 @@ class _TabStrip extends StatelessWidget {
     return Container(
       height: 40,
       decoration: BoxDecoration(
-        color: AppColors.titleBar,
+        gradient: AppColors.titleBarGradient,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
@@ -566,15 +569,23 @@ class _TabStrip extends StatelessWidget {
   }
 }
 
-class _Tab extends StatelessWidget {
+class _Tab extends StatefulWidget {
   final int index;
   final AppTab tab;
   const _Tab({required this.index, required this.tab});
 
   @override
+  State<_Tab> createState() => _TabState();
+}
+
+class _TabState extends State<_Tab> {
+  bool _hover = false;
+
+  @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    final active = app.activeTabIndex == index;
+    final active = app.activeTabIndex == widget.index;
+    final tab = widget.tab;
 
     String title;
     IconData icon;
@@ -601,55 +612,81 @@ class _Tab extends StatelessWidget {
         break;
     }
 
+    // Full-height tab with rounded top corners. The active tab gets a solid
+    // surface fill + a mint accent strip at the top (rendered as a clipped
+    // child, not a Border — a non-uniform border with borderRadius throws);
+    // inactive tabs get a faint rounded hover highlight.
     return MouseRegion(
       cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
-      onTap: () => app.selectTab(index),
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 200),
-        padding: const EdgeInsets.only(left: 14, right: 8),
-        decoration: BoxDecoration(
-          color: active ? AppColors.surface : Colors.transparent,
-          border: Border(
-            top: BorderSide(
-                color: active ? AppColors.accent : Colors.transparent,
-                width: 2),
-            right: BorderSide(color: AppColors.borderSubtle),
+        onTap: () => app.selectTab(widget.index),
+        child: SizedBox(
+          height: 40,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 200),
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: active
+                  ? AppColors.surface
+                  : (_hover
+                      ? AppColors.surfaceRaised.withValues(alpha: 0.4)
+                      : Colors.transparent),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(8)),
+            ),
+            child: Column(
+              children: [
+                Container(
+                    height: 2,
+                    color: active ? AppColors.accent : Colors.transparent),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 14, right: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(icon,
+                            size: 14,
+                            color: active
+                                ? AppColors.accentTeal
+                                : AppColors.textMuted),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Tooltip(
+                            message: tooltip,
+                            child: Text(title,
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: active
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                    color: active
+                                        ? AppColors.textPrimary
+                                        : AppColors.textSecondary)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (tab.kind != TabKind.launchpad)
+                          InkWell(
+                            onTap: () => app.closeTab(widget.index),
+                            borderRadius: BorderRadius.circular(4),
+                            child: Icon(Icons.close,
+                                size: 13, color: AppColors.textMuted),
+                          )
+                        else
+                          const SizedBox(width: 13),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon,
-                size: 14,
-                color: active ? AppColors.textPrimary : AppColors.textMuted),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Tooltip(
-                message: tooltip,
-                child: Text(title,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                    style: TextStyle(
-                        fontSize: 13,
-                        color: active
-                            ? AppColors.textPrimary
-                            : AppColors.textSecondary)),
-              ),
-            ),
-            const SizedBox(width: 8),
-            if (tab.kind != TabKind.launchpad)
-              InkWell(
-                onTap: () => app.closeTab(index),
-                borderRadius: BorderRadius.circular(3),
-                child: Icon(Icons.close,
-                    size: 13, color: AppColors.textMuted),
-              )
-            else
-              const SizedBox(width: 13),
-          ],
-        ),
-      ),
       ),
     );
   }

@@ -10,6 +10,10 @@ class Palette {
   final Color green, red, amber, purple;
   final Color tooltip, tooltipText, scrollbarThumb;
   final Color terminalBackground, terminalForeground;
+
+  /// Canvas gradient endpoints (top → bottom) and the colour used for soft
+  /// elevation shadows.
+  final Color backgroundTop, backgroundBottom, shadow;
   final List<Color> lanes;
 
   const Palette({
@@ -37,6 +41,9 @@ class Palette {
     required this.scrollbarThumb,
     required this.terminalBackground,
     required this.terminalForeground,
+    required this.backgroundTop,
+    required this.backgroundBottom,
+    required this.shadow,
     required this.lanes,
   });
 }
@@ -67,6 +74,9 @@ const Palette darkPalette = Palette(
   scrollbarThumb: Color(0xFF3A434F),
   terminalBackground: Color(0xFF11151B),
   terminalForeground: Color(0xFFE8EDEA),
+  backgroundTop: Color(0xFF181D26),
+  backgroundBottom: Color(0xFF10141A),
+  shadow: Color(0xFF000000),
   lanes: [
     Color(0xFF2DD4BF), // mint
     Color(0xFF34D399), // emerald
@@ -106,6 +116,9 @@ const Palette lightPalette = Palette(
   scrollbarThumb: Color(0xFFB3BDB8),
   terminalBackground: Color(0xFFF7F9F8),
   terminalForeground: Color(0xFF1A211E),
+  backgroundTop: Color(0xFFEFF3F1),
+  backgroundBottom: Color(0xFFE1E7E3),
+  shadow: Color(0xFF26332E),
   lanes: [
     Color(0xFF0D9488), // mint
     Color(0xFF059669), // emerald
@@ -148,7 +161,43 @@ class AppColors {
   static Color scrollbarThumb = darkPalette.scrollbarThumb;
   static Color terminalBackground = darkPalette.terminalBackground;
   static Color terminalForeground = darkPalette.terminalForeground;
+  static Color backgroundTop = darkPalette.backgroundTop;
+  static Color backgroundBottom = darkPalette.backgroundBottom;
+  static Color shadow = darkPalette.shadow;
   static List<Color> lanes = darkPalette.lanes;
+
+  // ---- Derived gradients / elevation (theme-aware) ----
+  /// Subtle vertical canvas gradient used behind the window.
+  static LinearGradient get backgroundGradient => LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [backgroundTop, backgroundBottom],
+      );
+
+  /// Mint gradient for primary (hero) buttons.
+  static LinearGradient get accentGradient => LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [accentTeal, accent],
+      );
+
+  /// Faint gradient for the title bar / tab strip.
+  static LinearGradient get titleBarGradient => LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color.lerp(titleBar, surface, 0.35)!, titleBar],
+      );
+
+  /// A soft elevation shadow.
+  static List<BoxShadow> elevation(
+          {double y = 4, double blur = 16, double alpha = 0.28}) =>
+      [
+        BoxShadow(
+          color: shadow.withValues(alpha: alpha),
+          blurRadius: blur,
+          offset: Offset(0, y),
+        ),
+      ];
 
   static void apply(Palette p) {
     brightness = p.brightness;
@@ -175,6 +224,9 @@ class AppColors {
     scrollbarThumb = p.scrollbarThumb;
     terminalBackground = p.terminalBackground;
     terminalForeground = p.terminalForeground;
+    backgroundTop = p.backgroundTop;
+    backgroundBottom = p.backgroundBottom;
+    shadow = p.shadow;
     lanes = p.lanes;
   }
 }
@@ -215,19 +267,57 @@ class AppTheme {
         fillColor: p.background,
         isDense: true,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         hintStyle: TextStyle(color: p.textMuted, fontSize: 13),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: p.border),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: p.border),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(4),
-          borderSide: BorderSide(color: p.accent),
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: p.accent, width: 1.5),
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: p.surface,
+        elevation: 16,
+        shadowColor: p.shadow.withValues(alpha: 0.5),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: p.border),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(p.surfaceRaised),
+          elevation: const WidgetStatePropertyAll(10),
+          shadowColor: WidgetStatePropertyAll(p.shadow.withValues(alpha: 0.4)),
+          shape: WidgetStatePropertyAll(RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(color: p.border),
+          )),
         ),
       ),
       scrollbarTheme: ScrollbarThemeData(

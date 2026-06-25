@@ -21,7 +21,7 @@ class LaunchpadView extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     return Container(
-      color: AppColors.background,
+      color: Colors.transparent,
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),

@@ -40,6 +40,10 @@ class RepoState extends ChangeNotifier {
   List<GitRef> stashes = [];
   String currentBranch = '';
 
+  /// Hash of the commit HEAD points at (the current branch tip). The graph pins
+  /// this to the leftmost lane and the WIP node links down to it.
+  String? headHash;
+
   List<FileChange> unstaged = [];
   List<FileChange> staged = [];
 
@@ -254,6 +258,15 @@ class RepoState extends ChangeNotifier {
       final stashNodes = results[5] as List<GitCommit>;
       commits = _mergeStashNodes(commits, stashNodes);
 
+      // The HEAD commit (current branch tip), identified by its ref marker.
+      headHash = null;
+      for (final c in commits) {
+        if (c.refs.any((r) => r == 'HEAD' || r.startsWith('HEAD ->'))) {
+          headHash = c.hash;
+          break;
+        }
+      }
+
       localBranches =
           refs.where((r) => r.kind == RefKind.localBranch).toList();
       remoteBranches =
@@ -324,7 +337,17 @@ class RepoState extends ChangeNotifier {
     if (q.isNotEmpty) {
       visible = visible.where((c) => _matchesSearch(c, q)).toList();
     }
-    graphRows = CommitGraph.layout(visible, pinnedTip: pinnedHash);
+    // An explicit Solo/Pin tip wins (solid); otherwise pin the current branch's
+    // HEAD to the leftmost lane as a dashed "HEAD pointer" spine so the WIP node
+    // links down to the active branch.
+    String? pin = pinnedHash;
+    var dashed = false;
+    if (pin == null && headHash != null) {
+      pin = headHash;
+      dashed = true;
+    }
+    graphRows =
+        CommitGraph.layout(visible, pinnedTip: pin, pinnedDashed: dashed);
   }
 
   /// Commits reachable from [hash] (itself + all ancestors) within [commits].

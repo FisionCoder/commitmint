@@ -47,7 +47,10 @@ class GraphRow {
 /// order, e.g. from `git log --date-order`). Produces draw-ready rows.
 class CommitGraph {
   /// [pinnedTip] forces that commit's branch into the leftmost lane (lane 0).
-  static List<GraphRow> layout(List<GitCommit> commits, {String? pinnedTip}) {
+  /// When [pinnedDashed] is true the pre-seeded lane is drawn dashed (used for
+  /// the HEAD pointer spine that the WIP node connects to).
+  static List<GraphRow> layout(List<GitCommit> commits,
+      {String? pinnedTip, bool pinnedDashed = false}) {
     final rows = <GraphRow>[];
     final List<String?> active = []; // lane -> hash it is waiting for
     final List<int?> colorOf = []; // lane -> color
@@ -58,7 +61,7 @@ class CommitGraph {
     if (pinnedTip != null && commits.any((c) => c.hash == pinnedTip)) {
       active.add(pinnedTip);
       colorOf.add(colorCounter++);
-      stashLane.add(false);
+      stashLane.add(pinnedDashed);
     }
 
     int firstFree() {

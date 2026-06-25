@@ -721,6 +721,44 @@ class _CommitRowState extends State<_CommitRow> {
                 ? AppColors.surfaceRaised.withValues(alpha: 0.5)
                 : Colors.transparent));
 
+    // The full-height message cell. The "ghost" hover popover (gated by the UI
+    // setting) is attached here only, so it appears solely over the commit
+    // message column — not the whole row.
+    Widget messageCell = SizedBox(
+      height: _rowHeight,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.only(left: _cellLeftPad),
+          child: _HighlightedText(
+            commit.subject,
+            widget.highlight,
+            TextStyle(fontSize: 13, color: AppColors.textPrimary),
+          ),
+        ),
+      ),
+    );
+    if (settings.showGhostHover) {
+      messageCell = Tooltip(
+        waitDuration: const Duration(milliseconds: 450),
+        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceRaised,
+          border: Border.all(color: AppColors.border),
+          borderRadius: BorderRadius.circular(6),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 14,
+                offset: const Offset(0, 4)),
+          ],
+        ),
+        richMessage: _commitTooltip(commit, authorColor),
+        child: messageCell,
+      );
+    }
+
     final row = Container(
       color: bg,
       padding: const EdgeInsets.symmetric(horizontal: _rowHPad),
@@ -762,14 +800,7 @@ class _CommitRowState extends State<_CommitRow> {
                   ],
                 ),
               ),
-              message: Padding(
-                padding: const EdgeInsets.only(left: _cellLeftPad),
-                child: _HighlightedText(
-                  commit.subject,
-                  widget.highlight,
-                  TextStyle(fontSize: 13, color: AppColors.textPrimary),
-                ),
-              ),
+              message: messageCell,
               author: commit.isStash
                   ? const SizedBox.shrink()
                   : Padding(
@@ -827,27 +858,7 @@ class _CommitRowState extends State<_CommitRow> {
         child: row,
       ),
     );
-
-    // The "ghost" hover popover is gated by the UI setting.
-    if (!settings.showGhostHover) return interactive;
-    return Tooltip(
-      waitDuration: const Duration(milliseconds: 450),
-      padding: const EdgeInsets.all(12),
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceRaised,
-        border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(6),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.35),
-              blurRadius: 14,
-              offset: const Offset(0, 4)),
-        ],
-      ),
-      richMessage: _commitTooltip(commit, authorColor),
-      child: interactive,
-    );
+    return interactive;
   }
 
   /// Hover block: the full commit subject, body and author/sha/date header.

@@ -20,11 +20,26 @@ class BranchSidebar extends StatefulWidget {
 
 class _BranchSidebarState extends State<BranchSidebar> {
   final Set<String> _expanded = {'LOCAL', 'REMOTE'};
+
+  /// Branch folders and remotes that the user has collapsed. Default is
+  /// expanded, so membership means "collapsed".
+  final Set<String> _collapsed = {};
   String _filter = '';
 
   void _toggle(String key) {
     setState(() {
       _expanded.contains(key) ? _expanded.remove(key) : _expanded.add(key);
+    });
+  }
+
+  /// Folders/remotes are expanded unless explicitly collapsed; an active filter
+  /// forces everything open so matches are visible.
+  bool _isOpen(String key) =>
+      _filter.isNotEmpty || !_collapsed.contains(key);
+
+  void _toggleOpen(String key) {
+    setState(() {
+      _collapsed.contains(key) ? _collapsed.remove(key) : _collapsed.add(key);
     });
   }
 
@@ -144,39 +159,38 @@ class _BranchSidebarState extends State<BranchSidebar> {
     }
 
     add(SidebarSectionId.local, Icons.computer, 'LOCAL',
-        state.localBranches.length, [
-      for (final b in state.localBranches)
-        if (_matches(b.name) && !state.isHidden(b))
-          _BranchRow(
-              branch: b,
-              indent: 28,
-              onSecondaryTap: (pos) =>
-                  showBranchContextMenu(context, state, b, pos)),
-    ]);
+        state.localBranches.length,
+        _branchTree(
+          context,
+          state,
+          [
+            for (final b in state.localBranches)
+              if (_matches(b.name) && !state.isHidden(b)) b
+          ],
+          'local',
+          28,
+        ));
 
     add(SidebarSectionId.remote, Icons.cloud_outlined, 'REMOTE',
         state.remoteBranches.length, [
       for (final entry in remotes.entries) ...[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(28, 4, 8, 4),
-          child: Row(
-            children: [
-              Icon(Icons.dns_outlined,
-                  size: 13, color: AppColors.textMuted),
-              const SizedBox(width: 6),
-              Text(entry.key,
-                  style: TextStyle(
-                      fontSize: 12, color: AppColors.textSecondary)),
-            ],
-          ),
+        _RemoteHeader(
+          name: entry.key,
+          count: entry.value.length,
+          open: _isOpen('remote:${entry.key}'),
+          onToggle: () => _toggleOpen('remote:${entry.key}'),
         ),
-        for (final b in entry.value)
-          if (_matches(b.name) && !state.isHidden(b))
-            _BranchRow(
-                branch: b,
-                indent: 44,
-                onSecondaryTap: (pos) =>
-                    showBranchContextMenu(context, state, b, pos)),
+        if (_isOpen('remote:${entry.key}'))
+          ..._branchTree(
+            context,
+            state,
+            [
+              for (final b in entry.value)
+                if (_matches(b.name) && !state.isHidden(b)) b
+            ],
+            'remote:${entry.key}',
+            44,
+          ),
       ],
     ]);
 
@@ -220,6 +234,59 @@ class _BranchSidebarState extends State<BranchSidebar> {
         null, const [_EmptyHint('No submodules')]);
 
     return sections;
+  }
+
+  /// Builds a collapsible directory tree for [refs], grouping branches whose
+  /// display name contains '/' under folder nodes (e.g. `mw/foo`, `mw/bar` →
+  /// folder `mw` with leaves `foo`, `bar`). [baseIndent] is the left inset of
+  /// the first level; [keyPrefix] namespaces folder expansion keys.
+  List<Widget> _branchTree(BuildContext context, RepoState state,
+      List<GitRef> refs, String keyPrefix, double baseIndent) {
+    final root = _DirNode('');
+    for (final b in refs) {
+      final segs = b.displayName.split('/');
+      var node = root;
+      for (var i = 0; i < segs.length - 1; i++) {
+        node = node.dirs.putIfAbsent(segs[i], () => _DirNode(segs[i]));
+      }
+      node.leaves.add(_LeafRef(segs.last, b));
+    }
+    return _renderDir(context, state, root, keyPrefix, baseIndent, 0);
+  }
+
+  List<Widget> _renderDir(BuildContext context, RepoState state, _DirNode node,
+      String keyPrefix, double baseIndent, int depth) {
+    final out = <Widget>[];
+    final indent = baseIndent + depth * 16;
+    final dirNames = node.dirs.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    for (final name in dirNames) {
+      final d = node.dirs[name]!;
+      final key = '$keyPrefix/$name';
+      final open = _isOpen(key);
+      out.add(_BranchFolderRow(
+        name: name,
+        count: d.leafCount,
+        indent: indent,
+        open: open,
+        onToggle: () => _toggleOpen(key),
+      ));
+      if (open) {
+        out.addAll(_renderDir(context, state, d, key, baseIndent, depth + 1));
+      }
+    }
+    final leaves = [...node.leaves]
+      ..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+    for (final leaf in leaves) {
+      out.add(_BranchRow(
+        branch: leaf.ref,
+        indent: indent,
+        label: leaf.label,
+        onSecondaryTap: (pos) =>
+            showBranchContextMenu(context, state, leaf.ref, pos),
+      ));
+    }
+    return out;
   }
 
   List<Widget> _prChildren(BuildContext context, RepoState state) {
@@ -282,6 +349,133 @@ class _BranchSidebarState extends State<BranchSidebar> {
     return children;
   }
 
+}
+
+/// A node in the branch directory tree.
+class _DirNode {
+  final String name;
+  final Map<String, _DirNode> dirs = {};
+  final List<_LeafRef> leaves = [];
+  _DirNode(this.name);
+
+  int get leafCount =>
+      leaves.length + dirs.values.fold(0, (s, d) => s + d.leafCount);
+}
+
+class _LeafRef {
+  final String label; // the final path segment
+  final GitRef ref;
+  _LeafRef(this.label, this.ref);
+}
+
+/// Collapsible header for a remote (e.g. `origin`) inside the REMOTE section.
+class _RemoteHeader extends StatefulWidget {
+  final String name;
+  final int count;
+  final bool open;
+  final VoidCallback onToggle;
+  const _RemoteHeader(
+      {required this.name,
+      required this.count,
+      required this.open,
+      required this.onToggle});
+
+  @override
+  State<_RemoteHeader> createState() => _RemoteHeaderState();
+}
+
+class _RemoteHeaderState extends State<_RemoteHeader> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onToggle,
+        child: Container(
+          color: _hover ? AppColors.surfaceRaised : Colors.transparent,
+          padding: const EdgeInsets.fromLTRB(20, 5, 8, 5),
+          child: Row(
+            children: [
+              Icon(widget.open ? Icons.expand_more : Icons.chevron_right,
+                  size: 15, color: AppColors.textMuted),
+              const SizedBox(width: 3),
+              Icon(Icons.dns_outlined, size: 13, color: AppColors.textMuted),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(widget.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary)),
+              ),
+              Text('${widget.count}',
+                  style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A collapsible folder grouping branches that share a `name/` prefix.
+class _BranchFolderRow extends StatefulWidget {
+  final String name;
+  final int count;
+  final double indent;
+  final bool open;
+  final VoidCallback onToggle;
+  const _BranchFolderRow(
+      {required this.name,
+      required this.count,
+      required this.indent,
+      required this.open,
+      required this.onToggle});
+
+  @override
+  State<_BranchFolderRow> createState() => _BranchFolderRowState();
+}
+
+class _BranchFolderRowState extends State<_BranchFolderRow> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onToggle,
+        child: Container(
+          color: _hover ? AppColors.surfaceRaised : Colors.transparent,
+          padding: EdgeInsets.only(
+              left: widget.indent, right: 8, top: 5, bottom: 5),
+          child: Row(
+            children: [
+              Icon(widget.open ? Icons.expand_more : Icons.chevron_right,
+                  size: 14, color: AppColors.textMuted),
+              const SizedBox(width: 3),
+              Icon(widget.open ? Icons.folder_open : Icons.folder_outlined,
+                  size: 13, color: AppColors.accentTeal),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(widget.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 12.5, color: AppColors.textSecondary)),
+              ),
+              Text('${widget.count}',
+                  style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// A muted hint shown inside an empty sidebar section.
@@ -557,9 +751,15 @@ class _RailItemState extends State<_RailItem> {
 class _BranchRow extends StatefulWidget {
   final GitRef branch;
   final double indent;
+
+  /// Shown instead of the full display name (e.g. the leaf segment in a tree).
+  final String? label;
   final void Function(Offset globalPosition)? onSecondaryTap;
   const _BranchRow(
-      {required this.branch, required this.indent, this.onSecondaryTap});
+      {required this.branch,
+      required this.indent,
+      this.label,
+      this.onSecondaryTap});
 
   @override
   State<_BranchRow> createState() => _BranchRowState();
@@ -621,7 +821,7 @@ class _BranchRowState extends State<_BranchRow> {
               const SizedBox(width: 7),
               Expanded(
                 child: TruncatedText(
-                  b.displayName,
+                  widget.label ?? b.displayName,
                   tooltipText: b.name,
                   style: TextStyle(
                     fontSize: 12.5,

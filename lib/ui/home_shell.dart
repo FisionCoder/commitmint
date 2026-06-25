@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -135,7 +137,9 @@ class _HomeShellState extends State<HomeShell>
   }
 
   Future<void> _initTray() async {
-    await trayManager.setIcon('assets/app_icon.ico');
+    // Windows uses the .ico; Linux/macOS tray icons must be PNG.
+    await trayManager
+        .setIcon(Platform.isWindows ? 'assets/app_icon.ico' : 'assets/app_icon.png');
     await trayManager.setToolTip('Commit Mint');
     await trayManager.setContextMenu(Menu(items: [
       MenuItem(key: 'show', label: 'Show Commit Mint'),

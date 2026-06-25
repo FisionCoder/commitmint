@@ -35,6 +35,9 @@ class RepoView extends StatelessWidget {
           (layout.changesPanelVisible ? layout.changesPanelWidth : 0.0);
 
       final panes = Row(
+        // Stretch panes to full height so the changes/commit-details panel
+        // fills the column (its content is top-aligned, not centered).
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (collapsed)
             const CollapsedSidebar()

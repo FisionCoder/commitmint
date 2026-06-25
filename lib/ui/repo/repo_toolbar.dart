@@ -132,7 +132,7 @@ class RepoToolbar extends StatelessWidget {
     );
 
     return Container(
-      height: 64,
+      height: 44,
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
@@ -180,7 +180,7 @@ class RepoToolbar extends StatelessWidget {
 
   Widget _toolbarDivider() => Container(
         width: 1,
-        height: 34,
+        height: 26,
         margin: const EdgeInsets.symmetric(horizontal: 8),
         color: AppColors.border,
       );

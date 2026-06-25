@@ -84,7 +84,7 @@ class _ToolbarButtonState extends State<ToolbarButton> {
         onTap: widget.onTap,
         child: Container(
           padding: EdgeInsets.symmetric(
-              horizontal: 10, vertical: showLabel ? 6 : 9),
+              horizontal: 9, vertical: showLabel ? 2 : 6),
           decoration: BoxDecoration(
             color: _hover && enabled
                 ? AppColors.surfaceRaised
@@ -98,7 +98,7 @@ class _ToolbarButtonState extends State<ToolbarButton> {
                 clipBehavior: Clip.none,
                 children: [
                   Icon(widget.icon,
-                      size: 20,
+                      size: 18,
                       color: enabled
                           ? (widget.color ?? AppColors.textSecondary)
                           : AppColors.textMuted),
@@ -107,10 +107,11 @@ class _ToolbarButtonState extends State<ToolbarButton> {
                 ],
               ),
               if (showLabel) ...[
-                const SizedBox(height: 3),
+                const SizedBox(height: 2),
                 Text(widget.label,
                     style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 10,
+                        height: 1.0,
                         color: enabled
                             ? AppColors.textSecondary
                             : AppColors.textMuted)),

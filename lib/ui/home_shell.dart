@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../models/git_repository.dart';
@@ -15,6 +16,15 @@ import 'settings/settings_screen.dart';
 import 'widgets/common.dart';
 import 'widgets/mint_leaf.dart';
 import 'widgets/profile_avatar.dart';
+
+// --------------------------------------------------------- App actions ----
+/// Fully exits the app (removes the tray icon and bypasses the
+/// minimize-to-tray close interception).
+Future<void> quitApp() async {
+  await trayManager.destroy();
+  await windowManager.setPreventClose(false);
+  await windowManager.destroy();
+}
 
 // --------------------------------------------------------- View actions ----
 /// Toggles the OS window between full screen and normal.
@@ -100,8 +110,74 @@ Future<void> showTabsList(BuildContext context) async {
   );
 }
 
-class HomeShell extends StatelessWidget {
+class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
+
+  @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell>
+    with WindowListener, TrayListener {
+  @override
+  void initState() {
+    super.initState();
+    windowManager.addListener(this);
+    trayManager.addListener(this);
+    _initTray();
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    trayManager.removeListener(this);
+    super.dispose();
+  }
+
+  Future<void> _initTray() async {
+    await trayManager.setIcon('assets/app_icon.ico');
+    await trayManager.setToolTip('Commit Mint');
+    await trayManager.setContextMenu(Menu(items: [
+      MenuItem(key: 'show', label: 'Show Commit Mint'),
+      MenuItem.separator(),
+      MenuItem(key: 'exit', label: 'Quit'),
+    ]));
+  }
+
+  /// Brings the window back from the notification area.
+  Future<void> _restoreWindow() async {
+    await windowManager.show();
+    if (await windowManager.isMinimized()) await windowManager.restore();
+    await windowManager.focus();
+  }
+
+  // ---- window: minimize/close hide to the tray instead of taskbar/exit ----
+  @override
+  void onWindowMinimize() {
+    windowManager.hide();
+  }
+
+  @override
+  void onWindowClose() {
+    // preventClose is enabled in main(), so closing hides to the tray.
+    windowManager.hide();
+  }
+
+  // ---- tray interactions ----
+  @override
+  void onTrayIconMouseDown() => _restoreWindow();
+
+  @override
+  void onTrayIconRightMouseDown() => trayManager.popUpContextMenu();
+
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) async {
+    if (menuItem.key == 'show') {
+      _restoreWindow();
+    } else if (menuItem.key == 'exit') {
+      await quitApp();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -285,7 +361,7 @@ class _FileMenu extends StatelessWidget {
           child: Divider(height: 1, color: AppColors.border),
         ),
         MenuItemButton(
-          onPressed: () => windowManager.close(),
+          onPressed: quitApp,
           child: const Text('Exit', style: TextStyle(fontSize: 13)),
         ),
       ],
@@ -624,8 +700,8 @@ class _TabState extends State<_Tab> {
         onTap: () => app.selectTab(widget.index),
         child: SizedBox(
           height: 40,
+          width: 172,
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 200),
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
               color: active
@@ -643,17 +719,16 @@ class _TabState extends State<_Tab> {
                     color: active ? AppColors.accent : Colors.transparent),
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.only(left: 14, right: 8),
+                    padding: const EdgeInsets.only(left: 10, right: 8),
                     child: Row(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(icon,
                             size: 14,
                             color: active
                                 ? AppColors.accentTeal
                                 : AppColors.textMuted),
-                        const SizedBox(width: 8),
-                        Flexible(
+                        const SizedBox(width: 6),
+                        Expanded(
                           child: Tooltip(
                             message: tooltip,
                             child: Text(title,
@@ -669,16 +744,15 @@ class _TabState extends State<_Tab> {
                                         : AppColors.textSecondary)),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        if (tab.kind != TabKind.launchpad)
+                        if (tab.kind != TabKind.launchpad) ...[
+                          const SizedBox(width: 6),
                           InkWell(
                             onTap: () => app.closeTab(widget.index),
                             borderRadius: BorderRadius.circular(4),
                             child: Icon(Icons.close,
-                                size: 13, color: AppColors.textMuted),
-                          )
-                        else
-                          const SizedBox(width: 13),
+                                size: 14, color: AppColors.textMuted),
+                          ),
+                        ],
                       ],
                     ),
                   ),

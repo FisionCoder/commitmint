@@ -14,6 +14,9 @@ void main() async {
   await windowManager.ensureInitialized();
   // Industry-standard desktop minimum so panels can't be crushed into overflow.
   await windowManager.setMinimumSize(const Size(900, 600));
+  // Intercept the close button so the app minimizes to the notification area
+  // (system tray) instead of exiting — see HomeShell's window/tray listeners.
+  await windowManager.setPreventClose(true);
   // Load all locale date symbols so the Date/Time Locale setting can format.
   await initializeDateFormatting();
   runApp(const CommitMintApp());

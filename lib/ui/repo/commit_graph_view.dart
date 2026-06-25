@@ -934,10 +934,14 @@ class _CommitRowState extends State<_CommitRow> {
       var name = ref;
       var color = AppColors.accent;
       IconData? icon = Icons.call_split;
+      // The branch to check out when this pill is double-clicked (null = not
+      // checkoutable, e.g. tags or the bare HEAD pointer).
+      String? checkout;
       if (ref.startsWith('HEAD -> ')) {
         name = ref.substring('HEAD -> '.length);
         color = AppColors.green;
         icon = Icons.check;
+        checkout = name;
       } else if (ref == 'HEAD') {
         color = AppColors.green;
         icon = Icons.adjust;
@@ -948,11 +952,28 @@ class _CommitRowState extends State<_CommitRow> {
       } else if (ref.contains('/')) {
         color = AppColors.textMuted;
         icon = Icons.cloud_outlined;
+        // Remote ref (e.g. origin/feat/x) -> check out the branch (feat/x).
+        checkout = ref.substring(ref.indexOf('/') + 1);
+      } else {
+        checkout = ref; // bare local branch
       }
+      final pill = Pill(name, color: color, icon: icon, tooltip: true);
       pills.add(Flexible(
         child: Padding(
           padding: const EdgeInsets.only(right: 4),
-          child: Pill(name, color: color, icon: icon, tooltip: true),
+          child: checkout == null
+              ? pill
+              : MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onDoubleTap: () => runRepoAction(
+                      context,
+                      () => context.read<RepoState>().checkout(checkout!),
+                      success: 'Checked out $checkout',
+                    ),
+                    child: pill,
+                  ),
+                ),
         ),
       ));
     }

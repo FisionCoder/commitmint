@@ -45,12 +45,11 @@ jobs:
       - name: Package zip
         shell: pwsh
         run: |
-          $zip = "CommitMint-${{ steps.ver.outputs.tag }}-windows-x64.zip"
-          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath $zip -CompressionLevel Optimal
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "CommitMint-Windows-x64.zip" -CompressionLevel Optimal
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: CommitMint-*-windows-x64.zip
+          path: CommitMint-Windows-x64.zip
 
   build-linux:
     runs-on: ubuntu-latest
@@ -80,12 +79,12 @@ jobs:
       - run: flutter build linux --release
       - name: Package tar.gz
         run: |
-          tar -czf "CommitMint-${{ steps.ver.outputs.tag }}-linux-x64.tar.gz" \
+          tar -czf "CommitMint-Linux-x64.tar.gz" \
             -C build/linux/x64/release/bundle .
       - uses: actions/upload-artifact@v4
         with:
           name: linux
-          path: CommitMint-*-linux-x64.tar.gz
+          path: CommitMint-Linux-x64.tar.gz
 
   release:
     needs: [build-windows, build-linux]

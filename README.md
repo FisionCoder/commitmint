@@ -1,89 +1,145 @@
-# Commit Mint
+<div align="center">
 
-A desktop Git client (Flutter, Windows) for managing repositories and commits, with
-integrations for **Azure DevOps, GitHub, GitLab, Bitbucket, Jira and Trello**. The UI is modeled on a GitKraken-style
-three-pane layout: branch sidebar, commit graph, and a changes/commit panel.
+# 🌿 Commit Mint
 
-## Features
+**A modern, cross‑platform desktop Git client built with Flutter.**
 
-### Repository management
-- **Tabbed repositories** — Launchpad + one tab per open repo, plus an Integrations tab.
-- **Resizable layout** — drag the splitters between the branch sidebar, graph, and
-  changes panel (and the integrations provider rail), and drag the commit-graph
-  column edges (branch/tag, date). Sizes persist across restarts.
-- **Column settings** — the cog in the graph header opens a menu to toggle each
-  column (Branch/Tag, Graph, Commit message, Author, Date/Time, Sha), switch on
-  Compact Graph Column / Smart Branch Visibility, or reset to the default/compact
-  layout. All choices persist. Columns shrink to fit so the row never overflows.
-- **Hover tooltips** — any truncated/ellipsized content (commit messages, dates,
-  branch & ref labels, file paths, hunk headers, tab names, dropdowns) reveals its
-  full value on hover.
-- **Open** any local Git repository or **Clone** from a remote URL (Launchpad cards).
-- **Commit graph** with a real multi-lane lane-assignment algorithm, colored lanes,
-  merge nodes, branch/tag ref pills, commit messages and dates.
-- **Branch sidebar** grouped into LOCAL / REMOTE / STASHES / TAGS with ahead/behind
-  counts; click a branch to check it out; live filter.
-- **Working changes panel** — unstaged/staged file lists, stage/unstage/discard,
-  amend toggle, commit summary + description, and commit.
-- **File diff & edit view** — click any changed file to open a detail pane with
-  Diff View (line-numbered, red/green hunks, **Stage/Discard/Unstage Hunk** per
-  hunk), File View (full content), an Unstaged/Staged toggle, and **Edit This
-  File** for inline editing that saves back to the working tree.
-- **Toolbar actions** — Fetch, Pull, Push, create Branch, Stash, Pop, branch switcher.
-- **Author avatars** — each commit node shows a dynamically generated 8-bit
-  "space-invader" sprite: a 5×7 symmetric pixel grid derived from the author's email
-  on a modern rounded tile. Each author is assigned a distinct, **persisted** colour
-  (golden-angle hue spacing) so it stays identical across sessions and repos. Hover
-  to see the author's name (and email). The same sprite appears in commit details.
-- **Session persistence** — open tabs (and the active tab) and author avatar colours
-  are cached, so the app reopens exactly as you left it.
-- **Commit details** — selecting a commit shows author, date, hash, and files changed.
-- **Commit context menu** — right-click any commit. Hover **Checkout**, **Create
-  worktree from**, and **Reset** to open cascading submenus. Every option is wired:
-  pull/push/set-upstream, checkout (branch or detached), create worktree, create
-  branch/tag (incl. annotated), reset (soft/mixed/hard), edit message (HEAD), revert,
-  drop, **move commit down** (safe reorder, auto-restores on conflict), start a pull
-  request (opens the host's PR page), rename/delete branch (local/remote/both),
-  apply/create patch, copy sha / branch name / remote links, share patch to clipboard,
-  and **Pin to Left / Solo** graph filters (with a clearable banner).
+A GitKraken‑style three‑pane workspace — branch sidebar, commit graph, and a
+changes/commit‑details panel — with provider integrations, a built‑in terminal,
+light/dark themes, and a system‑tray mode.
 
-### Integrations
-- Provider rail matching common services (GitHub, GitLab, Bitbucket, Azure DevOps,
-  Jira, Trello). **Azure DevOps is fully implemented.**
-- Connect with **Host Domain** (`dev.azure.com/org`) + **Personal Access Token**.
-  The PAT is validated against the org's REST API on connect.
-- **Saved Azure DevOps instances** are listed with their org, user, and date added.
-- **Browse repos** on any saved instance to list the org's repositories and clone
-  one directly (the stored PAT is injected into the HTTPS clone URL).
+[![Latest release](https://img.shields.io/github/v/release/FisionCoder/commitmint?label=latest&sort=semver)](https://github.com/FisionCoder/commitmint/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/FisionCoder/commitmint/total)](https://github.com/FisionCoder/commitmint/releases)
 
-## Architecture
+</div>
+
+---
+
+## ⬇️ Download
+
+Grab the latest build — no installer required, just unzip and run.
+
+| Platform | Download |
+|----------|----------|
+| 🪟 **Windows** (x64) | **[Download for Windows](https://github.com/FisionCoder/commitmint/releases/latest/download/CommitMint-Windows-x64.zip)** (`.zip`) |
+| 🐧 **Linux** (x64) | **[Download for Linux](https://github.com/FisionCoder/commitmint/releases/latest/download/CommitMint-Linux-x64.tar.gz)** (`.tar.gz`) |
+
+📦 All versions & release notes: **[github.com/FisionCoder/commitmint/releases](https://github.com/FisionCoder/commitmint/releases)**
+
+> These direct links always point to the **newest release**.
+
+### Install & run
+
+**Windows**
+1. Download and **unzip** `CommitMint-Windows-x64.zip`.
+2. Run **`commit_mint.exe`**.
+3. Windows SmartScreen may warn that the publisher is unknown (the build is
+   unsigned) — click **More info → Run anyway**.
+
+**Linux**
+```bash
+tar -xzf CommitMint-Linux-x64.tar.gz
+cd CommitMint-Linux-x64        # the extracted bundle folder
+./commit_mint
+```
+If a shared library is missing, install the runtime deps (most distros already
+have them):
+```bash
+sudo apt install libgtk-3-0 libsecret-1-0 libayatana-appindicator3-1
+```
+`libsecret` + a keyring (e.g. `gnome-keyring`/Seahorse) is used to store access
+tokens; `appindicator` enables the system‑tray icon.
+
+> **Requirement (both platforms):** `git` must be installed and on your `PATH`.
+
+---
+
+## ✨ Features
+
+### Workspace
+- **Tabbed repositories** — a Home launchpad, one tab per open repo, and an
+  Integrations tab. Tabs persist across restarts.
+- **Three‑pane, fully resizable layout** — branch sidebar, commit graph, and a
+  changes/commit‑details panel; drag the splitters and graph column edges. Sizes
+  and column choices persist.
+- **Commit graph** — real multi‑lane layout with coloured lanes, merge nodes and
+  branch/tag pills. The current branch's HEAD is pinned to the leftmost lane and
+  the WIP node links to it.
+- **Branch sidebar** — LOCAL / REMOTE / STASHES / TAGS with ahead/behind counts.
+  Branches with `/` in their name group into **collapsible folders**, and each
+  remote is collapsible. Double‑click a branch pill in the graph to check it out.
+- **Embedded terminal** — a real shell (PowerShell/cmd/Git Bash on Windows, your
+  `$SHELL` on Linux) rooted at the repo, with configurable font/size/cursor.
+
+### Working with commits
+- **Working changes panel** — staged/unstaged lists with Path **and Tree** views,
+  stage/unstage/discard, amend, commit summary + description, and commit.
+- **Commit details** — author, date, hash, and a **Files Changed browser** with a
+  Path/Tree toggle, collapsible folders with per‑folder counts, and expand/collapse.
+- **File diff & edit** — per‑hunk stage/discard/unstage, full‑file view, and inline
+  editing that saves back to the working tree.
+- **Rich commit context menu** — checkout, create worktree/branch/tag, reset,
+  revert, reorder, start a pull request, rename/delete branches, copy SHA/links,
+  Pin/Solo graph filters, and more.
+
+### Integrations (browser sign‑in + token)
+GitHub, GitHub Enterprise, GitLab (+ self‑managed), Bitbucket (+ Data Center),
+Azure DevOps, Jira (Cloud + Data Center) and Trello. **Connect to <provider>**
+opens the provider's sign‑in/token page in your browser; paste the token to
+connect. Browse and clone repositories from connected hosts.
+
+### Personalisation & convenience
+- **Light & dark themes** with a mint accent, switchable in Settings.
+- **Settings** (cog / File → Settings / `Ctrl+,`) — General, Profiles, SSH,
+  Integrations, UI Customization and In‑App Terminal.
+- **Profiles** with **customisable pixel‑art icons** (editable grid + colour
+  picker); a profile's icon shows on its own commits in the graph.
+- **System‑tray mode** — minimizing or closing hides Commit Mint to the
+  notification area; the tray icon restores it and offers Show / Quit (File →
+  Exit fully quits).
+
+---
+
+## 🛠️ Build from source
+
+Requires the **Flutter SDK 3.44+** and **Git** on your `PATH`.
+
+```bash
+git clone https://github.com/FisionCoder/commitmint.git
+cd commitmint
+flutter pub get
+
+flutter run -d windows      # or: flutter build windows --release
+flutter run -d linux        # or: flutter build linux   --release
+```
+
+Linux build dependencies:
+```bash
+sudo apt install clang cmake ninja-build pkg-config libgtk-3-dev \
+  liblzma-dev libsecret-1-dev libayatana-appindicator3-dev
+```
+
+Release binaries are produced by GitHub Actions (`.github/workflows/release.yml`)
+on every `v*` tag — it builds Windows + Linux and publishes them to a GitHub
+Release.
+
+## 🧱 Architecture
 
 ```
 lib/
-  models/        GitCommit, GitRef, FileChange, GitRepository, integration models
-  services/      git_service (system git CLI), azure_devops_service (REST),
-                 storage_service (prefs + secure token store), commit_graph (lanes)
-  state/         AppState (tabs/repos/instances), RepoState (per-repo live state)
-  ui/            home_shell, launchpad/, repo/ (toolbar, sidebar, graph, changes,
-                 file detail/diff/edit), integrations/ (rail, Azure panel, browser)
-  theme/         app_theme (dark palette)
+  models/     GitCommit, GitRef, FileChange, GitRepository, integration models
+  services/   git_service (system git CLI), git_config_service, integration_service
+              (provider REST), storage_service (prefs + secure tokens), commit_graph
+  state/      AppState (tabs/repos/integrations), RepoState (per‑repo live state),
+              LayoutState, SettingsState
+  ui/         home_shell, launchpad/, repo/ (toolbar, sidebar, graph, changes,
+              file detail/diff/edit, terminal), integrations/, settings/, widgets/
+  theme/      app_theme (runtime light/dark palette)
 ```
 
-- Local Git operations shell out to the system `git` executable (`git` must be on PATH).
-- Azure DevOps uses the REST API (`/_apis/projects`, `/_apis/git/repositories`) with
-  Basic auth (`:PAT`).
-- PATs are stored via `flutter_secure_storage` (Windows DPAPI); repo/instance metadata
-  in `shared_preferences`.
+Local Git operations shell out to the system `git`; provider APIs use REST over
+`http`; tokens are kept in the OS secure store (DPAPI / libsecret).
 
-## Running
+## 📄 License
 
-```bash
-flutter pub get
-flutter run -d windows      # or: flutter build windows
-```
-
-Requires Flutter 3.44+ and Git installed and on PATH.
-
-## Notes
-- Undo/Redo and Terminal toolbar buttons are placeholders.
-- Non–Azure DevOps providers show an informational "not configured" panel.
+Released under the terms in [LICENSE](LICENSE), if present.

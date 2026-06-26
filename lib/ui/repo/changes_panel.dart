@@ -334,21 +334,7 @@ class _FileRow extends StatefulWidget {
 class _FileRowState extends State<_FileRow> {
   bool _hover = false;
 
-  Color get _statusColor {
-    switch (widget.file.type) {
-      case ChangeType.added:
-      case ChangeType.untracked:
-        return AppColors.green;
-      case ChangeType.deleted:
-        return AppColors.red;
-      case ChangeType.renamed:
-        return AppColors.accent;
-      case ChangeType.conflicted:
-        return AppColors.amber;
-      case ChangeType.modified:
-        return AppColors.amber;
-    }
-  }
+  Color get _statusColor => _changeColor(widget.file.type);
 
   @override
   Widget build(BuildContext context) {
@@ -897,15 +883,6 @@ class _CommitDetails extends StatelessWidget {
           ),
         ),
         const Divider(height: 1),
-        Padding(
-          padding: EdgeInsets.fromLTRB(16, 12, 16, 6),
-          child: Text('FILES CHANGED',
-              style: TextStyle(
-                  fontSize: 10.5,
-                  letterSpacing: 0.7,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textMuted)),
-        ),
         FutureBuilder<List<FileChange>>(
           future: state.git.commitFiles(c.hash),
           builder: (context, snap) {
@@ -918,40 +895,7 @@ class _CommitDetails extends StatelessWidget {
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2))));
             }
-            final files = snap.data!;
-            if (files.isEmpty) {
-              return Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('No file changes',
-                      style:
-                          TextStyle(fontSize: 12, color: AppColors.textMuted)));
-            }
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final f in files)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
-                    child: Row(
-                      children: [
-                        Text(f.statusLetter,
-                            style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textSecondary)),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: TruncatedText(f.path,
-                              style: TextStyle(
-                                  fontSize: 12.5,
-                                  color: AppColors.textPrimary)),
-                        ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 8),
-              ],
-            );
+            return _CommitFiles(files: snap.data!);
           },
         ),
       ],
@@ -980,6 +924,270 @@ class _CommitDetails extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// Status colour for a file change (shared by working + commit views).
+Color _changeColor(ChangeType t) {
+  switch (t) {
+    case ChangeType.added:
+    case ChangeType.untracked:
+      return AppColors.green;
+    case ChangeType.deleted:
+      return AppColors.red;
+    case ChangeType.renamed:
+      return AppColors.accent;
+    case ChangeType.conflicted:
+    case ChangeType.modified:
+      return AppColors.amber;
+  }
+}
+
+/// The files-changed browser shown in the commit details panel: a count
+/// header, a Path/Tree toggle and sort control, then either a flat path list
+/// or a collapsible directory tree (with per-folder counts and expand/collapse
+/// all).
+class _CommitFiles extends StatefulWidget {
+  final List<FileChange> files;
+  const _CommitFiles({required this.files});
+
+  @override
+  State<_CommitFiles> createState() => _CommitFilesState();
+}
+
+class _CommitFilesState extends State<_CommitFiles> {
+  final Set<String> _collapsed = {}; // collapsed folder paths (default expanded)
+  bool _descending = false;
+
+  int _cmp(String a, String b) {
+    final r = a.toLowerCase().compareTo(b.toLowerCase());
+    return _descending ? -r : r;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final files = widget.files;
+    if (files.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        child: Text('No file changes',
+            style: TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
+      );
+    }
+    final state = context.watch<RepoState>();
+    final tree = state.treeView;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 12, 6),
+          child: Row(
+            children: [
+              Icon(Icons.edit, size: 13, color: AppColors.amber),
+              const SizedBox(width: 6),
+              Text('${files.length} file${files.length == 1 ? '' : 's'} changed',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary)),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 0, 12, 8),
+          child: Row(
+            children: [
+              Tooltip(
+                message: _descending ? 'Sort Z→A' : 'Sort A→Z',
+                child: InkWell(
+                  onTap: () => setState(() => _descending = !_descending),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.all(2),
+                    child: Icon(Icons.swap_vert,
+                        size: 16, color: AppColors.textMuted),
+                  ),
+                ),
+              ),
+              const Spacer(),
+              _ToggleChip(
+                icon: Icons.list,
+                label: 'Path',
+                active: !tree,
+                onTap: () => state.setTreeView(false),
+              ),
+              const SizedBox(width: 6),
+              _ToggleChip(
+                icon: Icons.account_tree_outlined,
+                label: 'Tree',
+                active: tree,
+                onTap: () => state.setTreeView(true),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        if (tree) ..._treeChildren(files) else ..._pathChildren(files),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  // ---- path (flat) view ----
+  List<Widget> _pathChildren(List<FileChange> files) {
+    final sorted = [...files]..sort((a, b) => _cmp(a.path, b.path));
+    return [for (final f in sorted) _CommitFileRow(file: f, label: f.path)];
+  }
+
+  // ---- tree view ----
+  _Folder _buildTree(List<FileChange> files) {
+    final root = _Folder('');
+    for (final f in files) {
+      final parts = f.path.split('/');
+      var node = root;
+      for (var i = 0; i < parts.length - 1; i++) {
+        final seg = parts[i];
+        final childPath = node.path.isEmpty ? seg : '${node.path}/$seg';
+        node = node.dirs.putIfAbsent(seg, () => _Folder(childPath));
+      }
+      node.files.add(f);
+    }
+    return root;
+  }
+
+  void _collectFolders(_Folder f, Set<String> out) {
+    for (final d in f.dirs.values) {
+      out.add(d.path);
+      _collectFolders(d, out);
+    }
+  }
+
+  List<Widget> _treeChildren(List<FileChange> files) {
+    final root = _buildTree(files);
+    final all = <String>{};
+    _collectFolders(root, all);
+    final allExpanded = all.isNotEmpty && _collapsed.isEmpty;
+    final widgets = <Widget>[];
+    if (all.isNotEmpty) {
+      widgets.add(Padding(
+        padding: const EdgeInsets.fromLTRB(16, 6, 10, 4),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: () => setState(() {
+              if (allExpanded) {
+                _collapsed.addAll(all);
+              } else {
+                _collapsed.clear();
+              }
+            }),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(allExpanded ? 'Collapse All' : 'Expand All',
+                  style:
+                      TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            ),
+          ),
+        ),
+      ));
+    }
+    widgets.addAll(_renderDir(root, 0));
+    return widgets;
+  }
+
+  List<Widget> _renderDir(_Folder folder, int depth) {
+    final out = <Widget>[];
+    final dirNames = folder.dirs.keys.toList()..sort(_cmp);
+    for (final name in dirNames) {
+      final d = folder.dirs[name]!;
+      final expanded = !_collapsed.contains(d.path);
+      out.add(_folderRow(d, depth, expanded));
+      if (expanded) out.addAll(_renderDir(d, depth + 1));
+    }
+    final files = [...folder.files]..sort((a, b) => _cmp(a.fileName, b.fileName));
+    for (final f in files) {
+      out.add(_CommitFileRow(file: f, label: f.fileName, indent: depth * 16.0));
+    }
+    return out;
+  }
+
+  Widget _folderRow(_Folder d, int depth, bool expanded) {
+    return InkWell(
+      onTap: () => setState(
+          () => expanded ? _collapsed.add(d.path) : _collapsed.remove(d.path)),
+      hoverColor: AppColors.surfaceRaised,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(14 + depth * 16.0, 4, 12, 4),
+        child: Row(
+          children: [
+            Icon(expanded ? Icons.expand_more : Icons.chevron_right,
+                size: 16, color: AppColors.textMuted),
+            const SizedBox(width: 2),
+            Icon(expanded ? Icons.folder_open : Icons.folder_outlined,
+                size: 13, color: AppColors.accentTeal),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(d.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+            ),
+            const SizedBox(width: 6),
+            Icon(Icons.edit, size: 12, color: AppColors.amber),
+            const SizedBox(width: 4),
+            Text('${d.count}',
+                style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A read-only file row in the commit files browser (status letter + name).
+class _CommitFileRow extends StatefulWidget {
+  final FileChange file;
+  final String label;
+  final double indent;
+  const _CommitFileRow(
+      {required this.file, required this.label, this.indent = 0});
+
+  @override
+  State<_CommitFileRow> createState() => _CommitFileRowState();
+}
+
+class _CommitFileRowState extends State<_CommitFileRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _changeColor(widget.file.type);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: Container(
+        color: _hover ? AppColors.surfaceRaised : Colors.transparent,
+        padding: EdgeInsets.fromLTRB(14 + widget.indent, 4, 12, 4),
+        child: Row(
+          children: [
+            Icon(Icons.insert_drive_file_outlined, size: 14, color: color),
+            const SizedBox(width: 7),
+            Expanded(
+              child: TruncatedText(
+                widget.label,
+                tooltipText: widget.file.path,
+                style: TextStyle(fontSize: 12.5, color: AppColors.textPrimary),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(widget.file.statusLetter,
+                style: TextStyle(
+                    fontSize: 11, fontWeight: FontWeight.bold, color: color)),
+          ],
+        ),
+      ),
     );
   }
 }

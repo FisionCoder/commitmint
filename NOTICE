@@ -1,0 +1,11 @@
+Commit Mint
+Copyright 2026 Michael Wiles
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This software includes third-party open-source packages, each distributed
+under its own permissive license (MIT / BSD), including the Flutter SDK and
+the following Dart/Flutter packages: provider, http, shared_preferences,
+flutter_secure_storage, intl, file_picker, xterm, flutter_pty, window_manager,
+url_launcher, and tray_manager. Their respective copyright notices and license
+texts are retained in the application's bundled license information.

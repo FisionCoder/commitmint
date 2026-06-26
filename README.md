@@ -142,4 +142,7 @@ Local Git operations shell out to the system `git`; provider APIs use REST over
 
 ## 📄 License
 
-Released under the terms in [LICENSE](LICENSE), if present.
+Licensed under the **Apache License 2.0** — see [LICENSE](LICENSE) and
+[NOTICE](NOTICE). You're free to use, modify, and distribute it; the license
+includes a patent grant and an "as is" warranty/liability disclaimer.
+Third‑party dependencies are MIT/BSD‑licensed and retain their own notices.

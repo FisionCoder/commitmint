@@ -46,6 +46,27 @@ class GitRuntimeConfig {
   }
 }
 
+/// A multi-step git operation that can pause on conflicts and be
+/// continued/aborted.
+enum GitOperation { none, merge, rebase, cherryPick, revert }
+
+extension GitOperationLabel on GitOperation {
+  String get label {
+    switch (this) {
+      case GitOperation.merge:
+        return 'Merge';
+      case GitOperation.rebase:
+        return 'Rebase';
+      case GitOperation.cherryPick:
+        return 'Cherry-pick';
+      case GitOperation.revert:
+        return 'Revert';
+      case GitOperation.none:
+        return '';
+    }
+  }
+}
+
 /// Thin wrapper around the system `git` CLI.
 class GitService {
   final String workingDir;
@@ -540,6 +561,81 @@ class GitService {
   Future<void> cherryPick(String sha) =>
       _runOrThrow(['cherry-pick', sha], env: _noEditorEnv);
 
+  // ----------------------------------------------- conflict / in-progress ---
+  /// Detects a paused multi-step operation (merge/rebase/cherry-pick/revert)
+  /// by inspecting the git directory's in-progress marker files.
+  Future<GitOperation> currentOperation() async {
+    final r = await _run(['rev-parse', '--absolute-git-dir']);
+    if (r.exitCode != 0) return GitOperation.none;
+    final g = (r.stdout as String).trim();
+    bool has(String rel) =>
+        File('$g/$rel').existsSync() || Directory('$g/$rel').existsSync();
+    if (has('rebase-merge') || has('rebase-apply')) return GitOperation.rebase;
+    if (has('CHERRY_PICK_HEAD')) return GitOperation.cherryPick;
+    if (has('REVERT_HEAD')) return GitOperation.revert;
+    if (has('MERGE_HEAD')) return GitOperation.merge;
+    return GitOperation.none;
+  }
+
+  /// Paths with unresolved merge conflicts.
+  Future<List<String>> conflictedPaths() async {
+    final r = await _run(['diff', '--name-only', '--diff-filter=U']);
+    if (r.exitCode != 0) return const [];
+    return (r.stdout as String)
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+  }
+
+  /// Resolve a conflict by taking our side (current branch) and staging it.
+  Future<void> resolveUsingOurs(String path) async {
+    await _runOrThrow(['checkout', '--ours', '--', path]);
+    await _runOrThrow(['add', '--', path]);
+  }
+
+  /// Resolve a conflict by taking their side (incoming) and staging it.
+  Future<void> resolveUsingTheirs(String path) async {
+    await _runOrThrow(['checkout', '--theirs', '--', path]);
+    await _runOrThrow(['add', '--', path]);
+  }
+
+  /// Mark a manually-edited file as resolved (stage it).
+  Future<void> markResolved(String path) =>
+      _runOrThrow(['add', '--', path]);
+
+  /// Continue the paused operation after all conflicts are resolved.
+  Future<void> continueOperation(GitOperation op) {
+    switch (op) {
+      case GitOperation.merge:
+        return _runOrThrow(['merge', '--continue'], env: _noEditorEnv);
+      case GitOperation.rebase:
+        return _runOrThrow(['rebase', '--continue'], env: _noEditorEnv);
+      case GitOperation.cherryPick:
+        return _runOrThrow(['cherry-pick', '--continue'], env: _noEditorEnv);
+      case GitOperation.revert:
+        return _runOrThrow(['revert', '--continue'], env: _noEditorEnv);
+      case GitOperation.none:
+        return Future.value();
+    }
+  }
+
+  /// Abort the paused operation, restoring the pre-operation state.
+  Future<void> abortOperation(GitOperation op) {
+    switch (op) {
+      case GitOperation.merge:
+        return _runOrThrow(['merge', '--abort']);
+      case GitOperation.rebase:
+        return _runOrThrow(['rebase', '--abort']);
+      case GitOperation.cherryPick:
+        return _runOrThrow(['cherry-pick', '--abort']);
+      case GitOperation.revert:
+        return _runOrThrow(['revert', '--abort']);
+      case GitOperation.none:
+        return Future.value();
+    }
+  }
+
   // ------------------------------------------------------- stash operations ---
   Future<void> stashApply(int index) =>
       _runOrThrow(['stash', 'apply', 'stash@{$index}']);
@@ -669,9 +765,26 @@ class GitService {
   Future<String> pull({String? authHeader}) => _runOrThrow(
       [..._netArgs(authHeader), 'pull'],
       env: _netEnv(authHeader));
-  Future<String> push({String? authHeader}) => _runOrThrow(
-      [..._netArgs(authHeader), 'push'],
-      env: _netEnv(authHeader));
+  /// Whether the current branch has a configured upstream (tracking) branch.
+  Future<bool> _hasUpstream() async {
+    final r = await _run(
+        ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+    return r.exitCode == 0;
+  }
+
+  /// Pushes the current branch. When it has no upstream yet (e.g. a freshly
+  /// created local branch), this creates a matching remote branch and sets it
+  /// as the upstream (`git push --set-upstream origin <branch>`).
+  Future<String> push({String? authHeader}) async {
+    final args = [..._netArgs(authHeader), 'push'];
+    if (!await _hasUpstream()) {
+      final branch = await currentBranch();
+      if (branch.isNotEmpty && branch != 'HEAD') {
+        args.addAll(['--set-upstream', 'origin', branch]);
+      }
+    }
+    return _runOrThrow(args, env: _netEnv(authHeader));
+  }
   Future<String> fetch({String? authHeader}) => _runOrThrow(
       [..._netArgs(authHeader), 'fetch', '--all', '--prune'],
       env: _netEnv(authHeader));

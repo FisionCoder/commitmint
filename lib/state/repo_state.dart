@@ -47,6 +47,19 @@ class RepoState extends ChangeNotifier {
   List<FileChange> unstaged = [];
   List<FileChange> staged = [];
 
+  /// A paused multi-step operation (merge/rebase/cherry-pick/revert), if any.
+  GitOperation operation = GitOperation.none;
+
+  /// Files with unresolved merge conflicts (shown with resolve actions).
+  List<FileChange> get conflictedFiles => [...staged, ...unstaged]
+      .where((c) => c.type == ChangeType.conflicted)
+      .toList();
+  bool get hasConflicts => conflictedFiles.isNotEmpty;
+
+  /// Whether the repo is in a paused operation or has conflicts to resolve.
+  bool get inConflictState =>
+      operation != GitOperation.none || hasConflicts;
+
   GitCommit? selectedCommit;
   bool selectingWip = true; // the "// WIP" working-changes row is selected
 
@@ -275,6 +288,7 @@ class RepoState extends ChangeNotifier {
 
       staged = changes.where((c) => c.staged).toList();
       unstaged = changes.where((c) => !c.staged).toList();
+      operation = await git.currentOperation();
 
       _recomputeGraph();
       loading = false;
@@ -467,6 +481,17 @@ class RepoState extends ChangeNotifier {
     await _afterMutation();
   }
 
+  /// Writes the resolved [content] for the open conflicted file, marks it
+  /// resolved (stages it), closes the detail view, and refreshes.
+  Future<void> saveResolvedFile(String content) async {
+    final f = openFile;
+    if (f == null) return;
+    await git.writeFileContent(f.path, content);
+    await git.markResolved(f.path);
+    openFile = null;
+    await _afterMutation();
+  }
+
   Future<void> stageOpenFile() async {
     final f = openFile;
     if (f == null) return;
@@ -492,8 +517,33 @@ class RepoState extends ChangeNotifier {
     final changes = await git.status();
     staged = changes.where((c) => c.staged).toList();
     unstaged = changes.where((c) => !c.staged).toList();
+    operation = await git.currentOperation();
     notifyListeners();
   }
+
+  // --------------------------------------------- merge conflict resolution ---
+  Future<void> resolveUsingOurs(FileChange f) async {
+    await git.resolveUsingOurs(f.path);
+    await _afterMutation();
+  }
+
+  Future<void> resolveUsingTheirs(FileChange f) async {
+    await git.resolveUsingTheirs(f.path);
+    await _afterMutation();
+  }
+
+  Future<void> markResolved(FileChange f) async {
+    await git.markResolved(f.path);
+    await _afterMutation();
+  }
+
+  /// Finalize the paused operation once all conflicts are resolved.
+  Future<void> continueOperation() =>
+      _runAction(() => git.continueOperation(operation));
+
+  /// Abort the paused operation, restoring the pre-operation state.
+  Future<void> abortOperation() =>
+      _runAction(() => git.abortOperation(operation));
 
   Future<void> stageFile(FileChange f) async {
     await git.stage(f.path);

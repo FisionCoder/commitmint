@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/file_change.dart';
 import '../../models/git_commit.dart';
+import '../../services/git_service.dart';
 import '../../state/app_state.dart';
 import '../../state/repo_state.dart';
 import '../../state/settings_state.dart';
@@ -34,6 +35,92 @@ class ChangesPanel extends StatelessWidget {
 }
 
 // --------------------------------------------------------- working changes ---
+/// Shown atop the working-changes panel while a merge/rebase/cherry-pick/revert
+/// is paused on conflicts: states the operation, how many conflicts remain, and
+/// offers Abort and (once clean) Continue.
+class _ConflictBanner extends StatelessWidget {
+  final RepoState state;
+  const _ConflictBanner({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = state.conflictedFiles.length;
+    final clean = remaining == 0;
+    final hasOp = state.operation != GitOperation.none;
+    final opLabel = hasOp ? state.operation.label : 'Conflicts';
+    return Container(
+      margin: const EdgeInsets.fromLTRB(10, 10, 10, 0),
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: (clean ? AppColors.green : AppColors.amber).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+            color: (clean ? AppColors.green : AppColors.amber)
+                .withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(clean ? Icons.check_circle_outline : Icons.warning_amber_rounded,
+                  size: 16, color: clean ? AppColors.green : AppColors.amber),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  clean
+                      ? (hasOp
+                          ? '$opLabel ready to finish — all conflicts resolved.'
+                          : 'All conflicts resolved — stage and commit.')
+                      : '${hasOp ? '$opLabel in progress' : 'Merge conflicts'} '
+                          '— $remaining file${remaining == 1 ? '' : 's'} to resolve.',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary),
+                ),
+              ),
+            ],
+          ),
+          if (!clean) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Resolve each file with “Use ours / Use theirs”, or open it to edit '
+              'the conflict markers and Mark resolved.',
+              style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+            ),
+          ],
+          // Continue/Abort only apply to an actual in-progress operation; a bare
+          // conflict (e.g. from a stash pop) is finished by staging + committing.
+          if (hasOp) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                _SmallButton(
+                  label: 'Abort $opLabel',
+                  onTap: state.busy
+                      ? null
+                      : () => runRepoAction(context, state.abortOperation,
+                          success: '$opLabel aborted'),
+                ),
+                const SizedBox(width: 8),
+                _SmallButton(
+                  label: 'Continue',
+                  primary: true,
+                  onTap: (clean && !state.busy)
+                      ? () => runRepoAction(context, state.continueOperation,
+                          success: '$opLabel completed')
+                      : null,
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _WorkingChanges extends StatelessWidget {
   final RepoState state;
   const _WorkingChanges({required this.state});
@@ -103,6 +190,7 @@ class _WorkingChanges extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (state.inConflictState) _ConflictBanner(state: state),
         header,
         const _PathTreeToggle(),
         const Divider(height: 1),
@@ -380,7 +468,28 @@ class _FileRowState extends State<_FileRow> {
                 ),
               ),
             ),
-            if (_hover) ...[
+            if (f.type == ChangeType.conflicted) ...[
+              // Conflict resolution actions (always visible so they're
+              // discoverable, not just on hover).
+              _RowIcon(
+                icon: Icons.west,
+                tooltip: 'Use ours (current branch)',
+                onTap: () =>
+                    runRepoAction(context, () => widget.state.resolveUsingOurs(f)),
+              ),
+              _RowIcon(
+                icon: Icons.east,
+                tooltip: 'Use theirs (incoming)',
+                onTap: () => runRepoAction(
+                    context, () => widget.state.resolveUsingTheirs(f)),
+              ),
+              _RowIcon(
+                icon: Icons.check,
+                tooltip: 'Mark resolved (stage)',
+                onTap: () =>
+                    runRepoAction(context, () => widget.state.markResolved(f)),
+              ),
+            ] else if (_hover) ...[
               if (widget.staged)
                 _RowIcon(
                   icon: Icons.remove,
@@ -615,24 +724,33 @@ class _RowIcon extends StatelessWidget {
 
 class _SmallButton extends StatelessWidget {
   final String label;
-  final VoidCallback onTap;
-  const _SmallButton({required this.label, required this.onTap});
+  final VoidCallback? onTap;
+  final bool primary;
+  const _SmallButton(
+      {required this.label, required this.onTap, this.primary = false});
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceRaised,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: AppColors.border),
+    final enabled = onTap != null;
+    final fg = primary
+        ? (enabled ? Colors.white : AppColors.textMuted)
+        : (enabled ? AppColors.textSecondary : AppColors.textMuted);
+    return MouseRegion(
+      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(4),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: primary && enabled
+                ? AppColors.accent
+                : AppColors.surfaceRaised,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Text(label, style: TextStyle(fontSize: 11.5, color: fg)),
         ),
-        child: Text(label,
-            style: TextStyle(
-                fontSize: 11.5, color: AppColors.textSecondary)),
       ),
     );
   }

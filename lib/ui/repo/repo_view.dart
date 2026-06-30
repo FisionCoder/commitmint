@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/file_change.dart';
 import '../../state/layout_state.dart';
 import '../../state/repo_state.dart';
 import '../widgets/common.dart';
 import 'branch_sidebar.dart';
 import 'changes_panel.dart';
 import 'commit_graph_view.dart';
+import 'conflict_resolution_view.dart';
 import 'file_detail_view.dart';
 import 'repo_toolbar.dart';
 import 'terminal_panel.dart';
@@ -17,12 +19,20 @@ class RepoView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fileOpen = context.select<RepoState, bool>((s) => s.isFileOpen);
+    // A conflicted open file gets the dedicated resolution editor instead of
+    // the raw-marker diff view.
+    final openConflicted = context.select<RepoState, bool>(
+        (s) => s.openFile?.type == ChangeType.conflicted);
     final terminalVisible =
         context.select<RepoState, bool>((s) => s.terminalVisible);
     final repoPath = context.read<RepoState>().repo.path;
     final layout = context.watch<LayoutState>();
-    final center =
-        fileOpen ? const FileDetailView() : const CommitGraphView();
+    final openPath = context.select<RepoState, String?>((s) => s.openFile?.path);
+    final center = !fileOpen
+        ? const CommitGraphView()
+        : (openConflicted
+            ? ConflictResolutionView(key: ValueKey('conflict:$openPath'))
+            : const FileDetailView());
 
     const centerMin = 360.0;
     final collapsed = layout.sidebarCollapsed;

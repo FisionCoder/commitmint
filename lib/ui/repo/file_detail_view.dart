@@ -88,7 +88,7 @@ class _Header extends StatelessWidget {
           Text('UTF-8',
               style: TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
           const SizedBox(width: 10),
-          if (!file.staged)
+          if (!state.openFileIsHistorical && !file.staged)
             _OutlineBtn(
               label: 'Stage File',
               color: AppColors.green,
@@ -114,6 +114,8 @@ class _SubToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<RepoState>();
+    // A file viewed as of a commit is read-only: no edit/stage/unstaged toggle.
+    final historical = state.openFileIsHistorical;
 
     final edit = _OutlineBtn(
       label: 'Edit This File',
@@ -141,36 +143,22 @@ class _SubToolbar extends StatelessWidget {
       color: AppColors.surface,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: LayoutBuilder(builder: (context, c) {
-        // Spread the groups out on wide panes; scroll horizontally when cramped.
-        if (c.maxWidth >= 640) {
-          return Row(
-            children: [
-              edit,
-              const Spacer(),
-              stagedToggle,
-              const SizedBox(width: 10),
-              modeToggle,
-              const Spacer(),
-              blame,
-              history,
-            ],
-          );
-        }
+        final wide = c.maxWidth >= 640;
+        final children = <Widget>[
+          if (!historical) ...[edit, wide ? const Spacer() : const SizedBox(width: 12)],
+          if (!historical) ...[
+            stagedToggle,
+            const SizedBox(width: 10),
+          ],
+          modeToggle,
+          wide ? const Spacer() : const SizedBox(width: 12),
+          blame,
+          history,
+        ];
+        final row = Row(children: children);
+        if (wide) return row;
         return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              edit,
-              const SizedBox(width: 12),
-              stagedToggle,
-              const SizedBox(width: 10),
-              modeToggle,
-              const SizedBox(width: 12),
-              blame,
-              history,
-            ],
-          ),
-        );
+            scrollDirection: Axis.horizontal, child: row);
       }),
     );
   }
@@ -240,8 +228,9 @@ class _HunkWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canStageHunks =
-        file.type != ChangeType.untracked && hunk.rawText.isNotEmpty;
+    final canStageHunks = !state.openFileIsHistorical &&
+        file.type != ChangeType.untracked &&
+        hunk.rawText.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

@@ -919,13 +919,52 @@ class _CommitBoxState extends State<_CommitBox> {
 }
 
 // ---------------------------------------------------------- commit details ---
-class _CommitDetails extends StatelessWidget {
+class _CommitDetails extends StatefulWidget {
   final GitCommit? commit;
   const _CommitDetails({required this.commit});
 
   @override
+  State<_CommitDetails> createState() => _CommitDetailsState();
+}
+
+class _CommitDetailsState extends State<_CommitDetails> {
+  bool _editing = false;
+  final _subject = TextEditingController();
+  final _description = TextEditingController();
+
+  @override
+  void didUpdateWidget(_CommitDetails old) {
+    super.didUpdateWidget(old);
+    // Leave edit mode when a different commit is selected.
+    if (old.commit?.hash != widget.commit?.hash) _editing = false;
+  }
+
+  @override
+  void dispose() {
+    _subject.dispose();
+    _description.dispose();
+    super.dispose();
+  }
+
+  void _startEdit(GitCommit c) {
+    _subject.text = c.subject;
+    _description.text = c.body;
+    setState(() => _editing = true);
+  }
+
+  Future<void> _submit(BuildContext context, GitCommit c) async {
+    final state = context.read<RepoState>();
+    await runRepoAction(
+      context,
+      () => state.editCommitMessage(c.hash, _subject.text, _description.text),
+      success: 'Commit message updated',
+    );
+    if (mounted) setState(() => _editing = false);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final c = commit;
+    final c = widget.commit;
     if (c == null) {
       return Center(
         child: Text('Select a commit',
@@ -942,6 +981,8 @@ class _CommitDetails extends StatelessWidget {
     }
     final showBody =
         settings.commitDescriptionVisibility != DescriptionVisibility.never;
+    // Stashes/WIP nodes aren't editable commits.
+    final editable = !c.isStash;
     return SingleChildScrollView(
       child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -951,18 +992,30 @@ class _CommitDetails extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(c.subject,
+              if (_editing)
+                _editor(context, c)
+              else ...[
+                _MessageDisplay(
+                  text: c.subject,
                   style: TextStyle(
                       fontSize: 14.5,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary)),
-              if (c.body.isNotEmpty && showBody) ...[
-                const SizedBox(height: 8),
-                Text(c.body,
+                      color: AppColors.textPrimary),
+                  editable: editable,
+                  onEdit: () => _startEdit(c),
+                ),
+                if (c.body.isNotEmpty && showBody) ...[
+                  const SizedBox(height: 8),
+                  _MessageDisplay(
+                    text: c.body,
                     style: TextStyle(
                         fontSize: 12.5,
                         height: 1.4,
-                        color: AppColors.textSecondary)),
+                        color: AppColors.textSecondary),
+                    editable: editable,
+                    onEdit: () => _startEdit(c),
+                  ),
+                ],
               ],
               const SizedBox(height: 14),
               Row(
@@ -1013,11 +1066,61 @@ class _CommitDetails extends StatelessWidget {
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2))));
             }
-            return _CommitFiles(files: snap.data!);
+            return _CommitFiles(files: snap.data!, commitHash: c.hash);
           },
         ),
       ],
       ),
+    );
+  }
+
+  Widget _editor(BuildContext context, GitCommit c) {
+    final canSave = _subject.text.trim().isNotEmpty && !context.read<RepoState>().busy;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _subject,
+          onChanged: (_) => setState(() {}),
+          style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary),
+          decoration: const InputDecoration(hintText: 'Summary'),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _description,
+          minLines: 3,
+          maxLines: 8,
+          style: TextStyle(fontSize: 12.5, color: AppColors.textPrimary),
+          decoration: const InputDecoration(hintText: 'Description'),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            FilledButton(
+              onPressed: canSave ? () => _submit(context, c) : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.accent,
+                disabledBackgroundColor: AppColors.surfaceRaised,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              ),
+              child: const Text('Update Message', style: TextStyle(fontSize: 12.5)),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton(
+              onPressed: () => setState(() => _editing = false),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.red,
+                side: BorderSide(color: AppColors.red.withValues(alpha: 0.6)),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              ),
+              child: const Text('Cancel', style: TextStyle(fontSize: 12.5)),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -1046,6 +1149,65 @@ class _CommitDetails extends StatelessWidget {
   }
 }
 
+/// Commit subject/description text that reveals an edit affordance on hover and
+/// enters edit mode when clicked (used in the commit details panel).
+class _MessageDisplay extends StatefulWidget {
+  final String text;
+  final TextStyle style;
+  final bool editable;
+  final VoidCallback onEdit;
+  const _MessageDisplay({
+    required this.text,
+    required this.style,
+    required this.editable,
+    required this.onEdit,
+  });
+
+  @override
+  State<_MessageDisplay> createState() => _MessageDisplayState();
+}
+
+class _MessageDisplayState extends State<_MessageDisplay> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Text(widget.text, style: widget.style);
+    if (!widget.editable) return content;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: Tooltip(
+        message: 'Click to edit message',
+        waitDuration: const Duration(milliseconds: 500),
+        child: GestureDetector(
+          onTap: widget.onEdit,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            decoration: BoxDecoration(
+              color: _hover ? AppColors.surfaceRaised : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: content),
+                if (_hover) ...[
+                  const SizedBox(width: 6),
+                  Icon(Icons.edit_outlined,
+                      size: 13, color: AppColors.textMuted),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Status colour for a file change (shared by working + commit views).
 Color _changeColor(ChangeType t) {
   switch (t) {
@@ -1068,7 +1230,8 @@ Color _changeColor(ChangeType t) {
 /// all).
 class _CommitFiles extends StatefulWidget {
   final List<FileChange> files;
-  const _CommitFiles({required this.files});
+  final String commitHash;
+  const _CommitFiles({required this.files, required this.commitHash});
 
   @override
   State<_CommitFiles> createState() => _CommitFilesState();
@@ -1155,7 +1318,11 @@ class _CommitFilesState extends State<_CommitFiles> {
   // ---- path (flat) view ----
   List<Widget> _pathChildren(List<FileChange> files) {
     final sorted = [...files]..sort((a, b) => _cmp(a.path, b.path));
-    return [for (final f in sorted) _CommitFileRow(file: f, label: f.path)];
+    return [
+      for (final f in sorted)
+        _CommitFileRow(
+            file: f, label: f.path, commitHash: widget.commitHash)
+    ];
   }
 
   // ---- tree view ----
@@ -1225,7 +1392,11 @@ class _CommitFilesState extends State<_CommitFiles> {
     }
     final files = [...folder.files]..sort((a, b) => _cmp(a.fileName, b.fileName));
     for (final f in files) {
-      out.add(_CommitFileRow(file: f, label: f.fileName, indent: depth * 16.0));
+      out.add(_CommitFileRow(
+          file: f,
+          label: f.fileName,
+          commitHash: widget.commitHash,
+          indent: depth * 16.0));
     }
     return out;
   }
@@ -1264,13 +1435,18 @@ class _CommitFilesState extends State<_CommitFiles> {
   }
 }
 
-/// A read-only file row in the commit files browser (status letter + name).
+/// A file row in the commit files browser (status letter + name). Clicking it
+/// opens the file's diff/content as of that commit.
 class _CommitFileRow extends StatefulWidget {
   final FileChange file;
   final String label;
+  final String commitHash;
   final double indent;
   const _CommitFileRow(
-      {required this.file, required this.label, this.indent = 0});
+      {required this.file,
+      required this.label,
+      required this.commitHash,
+      this.indent = 0});
 
   @override
   State<_CommitFileRow> createState() => _CommitFileRowState();
@@ -1281,29 +1457,41 @@ class _CommitFileRowState extends State<_CommitFileRow> {
 
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<RepoState>();
     final color = _changeColor(widget.file.type);
+    final isOpen = state.openFileIsHistorical &&
+        state.openFileCommit == widget.commitHash &&
+        state.openFile?.path == widget.file.path;
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: Container(
-        color: _hover ? AppColors.surfaceRaised : Colors.transparent,
-        padding: EdgeInsets.fromLTRB(14 + widget.indent, 4, 12, 4),
-        child: Row(
-          children: [
-            Icon(Icons.insert_drive_file_outlined, size: 14, color: color),
-            const SizedBox(width: 7),
-            Expanded(
-              child: TruncatedText(
-                widget.label,
-                tooltipText: widget.file.path,
-                style: TextStyle(fontSize: 12.5, color: AppColors.textPrimary),
+      child: GestureDetector(
+        onTap: () =>
+            state.openCommitFile(widget.commitHash, widget.file),
+        child: Container(
+          color: isOpen
+              ? AppColors.selectionRow
+              : (_hover ? AppColors.surfaceRaised : Colors.transparent),
+          padding: EdgeInsets.fromLTRB(14 + widget.indent, 4, 12, 4),
+          child: Row(
+            children: [
+              Icon(Icons.insert_drive_file_outlined, size: 14, color: color),
+              const SizedBox(width: 7),
+              Expanded(
+                child: TruncatedText(
+                  widget.label,
+                  tooltipText: widget.file.path,
+                  style:
+                      TextStyle(fontSize: 12.5, color: AppColors.textPrimary),
+                ),
               ),
-            ),
-            const SizedBox(width: 6),
-            Text(widget.file.statusLetter,
-                style: TextStyle(
-                    fontSize: 11, fontWeight: FontWeight.bold, color: color)),
-          ],
+              const SizedBox(width: 6),
+              Text(widget.file.statusLetter,
+                  style: TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.bold, color: color)),
+            ],
+          ),
         ),
       ),
     );

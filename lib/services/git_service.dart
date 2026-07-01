@@ -438,6 +438,21 @@ class GitService {
     return f.readAsString();
   }
 
+  /// Unified diff a commit introduced for one file (`git show <hash> -- path`).
+  /// Handles the root commit (shown as an addition).
+  Future<String> commitFileDiff(String hash, String path) async {
+    final r = await _run(
+        ['show', '--format=', '--no-color', '-M', hash, '--', path]);
+    return r.stdout as String;
+  }
+
+  /// The contents of a file as of a specific commit (`git show <hash>:path`).
+  Future<String> fileContentAt(String hash, String path) async {
+    final r = await _run(['show', '$hash:$path']);
+    if (r.exitCode != 0) return '';
+    return r.stdout as String;
+  }
+
   /// Overwrites a working-tree file with [content] (used by the editor).
   Future<void> writeFileContent(String path, String content) async {
     final f = File('$workingDir${Platform.pathSeparator}$path');
@@ -509,6 +524,77 @@ class GitService {
 
   Future<void> amendMessage(String message) =>
       _runOrThrow(['commit', '--amend', '-m', message]);
+
+  /// Writes [message] to a temp file so multi-line subjects/bodies are passed
+  /// safely to git (avoids shell newline/quoting issues). Returns the path.
+  Future<String> _writeMessageFile(String message) async {
+    final f = File('${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'cm_msg_${DateTime.now().microsecondsSinceEpoch}.txt');
+    await f.writeAsString(message);
+    return f.path;
+  }
+
+  void _deleteQuiet(String path) {
+    try {
+      File(path).deleteSync();
+    } catch (_) {}
+  }
+
+  /// Amends the HEAD commit's message (subject + body) from a temp file.
+  Future<void> amendHeadMessage(String message) async {
+    final path = await _writeMessageFile(message);
+    try {
+      await _runOrThrow(['commit', '--amend', '-F', path], env: _noEditorEnv);
+    } finally {
+      _deleteQuiet(path);
+    }
+  }
+
+  /// Rewords an arbitrary commit's message by rebuilding [branch] onto the
+  /// reworded commit. The tree is unchanged, so children replay cleanly (no
+  /// conflicts); on any failure the branch is restored. Requires [sha] to be an
+  /// ancestor of [branch].
+  Future<void> rewordCommit(String sha, String message, String branch) async {
+    final ancestor =
+        await _run(['merge-base', '--is-ancestor', sha, branch]);
+    if (ancestor.exitCode != 0) {
+      throw GitException(
+          'This commit is not on the current branch, so its message '
+          "can't be edited here.");
+    }
+    final path = await _writeMessageFile(message);
+    final parentRes = await _run(['rev-parse', '$sha^']);
+    final hasParent = parentRes.exitCode == 0;
+    final childrenOut =
+        await _runOrThrow(['rev-list', '--reverse', '$sha..$branch']);
+    final children = childrenOut
+        .split('\n')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    try {
+      if (hasParent) {
+        await _runOrThrow(
+            ['checkout', '--detach', (parentRes.stdout as String).trim()]);
+        await _runOrThrow(['cherry-pick', sha], env: _noEditorEnv);
+      } else {
+        await _runOrThrow(['checkout', '--detach', sha]);
+      }
+      await _runOrThrow(['commit', '--amend', '-F', path], env: _noEditorEnv);
+      for (final c in children) {
+        await _runOrThrow(['cherry-pick', c], env: _noEditorEnv);
+      }
+      final head =
+          (await _run(['rev-parse', 'HEAD'])).stdout.toString().trim();
+      await _runOrThrow(['checkout', '-B', branch, head]);
+    } catch (e) {
+      await _run(['cherry-pick', '--abort']);
+      await _run(['checkout', '-f', branch]);
+      throw GitException('Could not update the message. Repository restored. $e');
+    } finally {
+      _deleteQuiet(path);
+    }
+  }
 
   /// Drops [sha] from history by rebasing its children onto its parent.
   Future<void> dropCommit(String sha) =>

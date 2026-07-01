@@ -235,6 +235,13 @@ class RepoState extends ChangeNotifier {
 
   // File detail view (replaces the commit graph when a file is opened).
   FileChange? openFile;
+
+  /// When the open file is being viewed as of a specific commit (from the
+  /// commit details "Files Changed"), this holds that commit's hash. Null means
+  /// the working-tree file (editable, stageable).
+  String? openFileCommit;
+  bool get openFileIsHistorical => openFileCommit != null;
+
   FileViewMode fileViewMode = FileViewMode.diff;
   bool viewStaged = false; // diff against the index (staged) vs working tree
   bool editing = false;
@@ -412,7 +419,17 @@ class RepoState extends ChangeNotifier {
   // ------------------------------------------------------- file detail view ---
   void openFileDetail(FileChange f) {
     openFile = f;
+    openFileCommit = null;
     viewStaged = f.staged;
+    fileViewMode = FileViewMode.diff;
+    editing = false;
+    notifyListeners();
+  }
+
+  /// Opens a file as it was in [commitHash] (read-only diff/content view).
+  void openCommitFile(String commitHash, FileChange f) {
+    openFile = f;
+    openFileCommit = commitHash;
     fileViewMode = FileViewMode.diff;
     editing = false;
     notifyListeners();
@@ -420,6 +437,7 @@ class RepoState extends ChangeNotifier {
 
   void closeFileDetail() {
     openFile = null;
+    openFileCommit = null;
     editing = false;
     notifyListeners();
   }
@@ -444,6 +462,11 @@ class RepoState extends ChangeNotifier {
   Future<FileDiff> loadOpenFileDiff() async {
     final f = openFile;
     if (f == null) return const FileDiff(headerLines: [], hunks: [], isEmpty: true);
+    // A file opened from a commit shows that commit's diff for the file.
+    if (openFileCommit != null) {
+      final raw = await git.commitFileDiff(openFileCommit!, f.path);
+      return DiffParser.parse(raw);
+    }
     if (f.type == ChangeType.untracked && !viewStaged) {
       final content = await git.readFileContent(f.path);
       return DiffParser.forNewFile(f.path, content);
@@ -455,6 +478,9 @@ class RepoState extends ChangeNotifier {
   Future<String> loadOpenFileContent() async {
     final f = openFile;
     if (f == null) return '';
+    if (openFileCommit != null) {
+      return git.fileContentAt(openFileCommit!, f.path);
+    }
     return git.readFileContent(f.path);
   }
 
@@ -656,6 +682,20 @@ class RepoState extends ChangeNotifier {
       _runAction(() => git.revertCommit(sha));
   Future<void> amendMessage(String message) =>
       _runAction(() => git.amendMessage(message));
+
+  /// Edits a commit's message (subject + optional body): amends when it's HEAD,
+  /// otherwise rewords it in place by rebuilding the branch.
+  Future<void> editCommitMessage(String sha, String subject, String body) =>
+      _runAction(() async {
+        final s = subject.trim();
+        final b = body.trim();
+        final message = b.isEmpty ? '$s\n' : '$s\n\n$b\n';
+        if (sha == headHash) {
+          await git.amendHeadMessage(message);
+        } else {
+          await git.rewordCommit(sha, message, currentBranch);
+        }
+      });
   Future<void> dropCommit(String sha) =>
       _runAction(() => git.dropCommit(sha));
   Future<void> setUpstreamToTracking() => _runAction(

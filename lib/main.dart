@@ -12,6 +12,9 @@ import 'ui/home_shell.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
+  // Ensure the OS window / taskbar title reads "Commit Mint", not the
+  // executable name (window_manager owns the window at runtime).
+  await windowManager.setTitle('Commit Mint');
   // Industry-standard desktop minimum so panels can't be crushed into overflow.
   await windowManager.setMinimumSize(const Size(900, 600));
   // Intercept the close button so the app minimizes to the notification area

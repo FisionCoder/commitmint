@@ -11,6 +11,10 @@ light/dark themes, and a system‑tray mode.
 [![Latest release](https://img.shields.io/github/v/release/FisionCoder/commitmint?label=latest&sort=semver)](https://github.com/FisionCoder/commitmint/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/FisionCoder/commitmint/total)](https://github.com/FisionCoder/commitmint/releases)
 
+<br/>
+
+<img src="docs/screenshot.png" alt="Commit Mint — branch sidebar, commit graph, and the commit details panel with inline message editing" width="900" />
+
 </div>
 
 ---

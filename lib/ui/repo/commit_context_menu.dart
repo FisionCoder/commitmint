@@ -59,82 +59,99 @@ final _divider = Padding(
   child: Divider(height: 1, thickness: 1, color: AppColors.border),
 );
 
-/// Builds the menu entries for a commit (used as MenuAnchor.menuChildren).
-List<Widget> buildCommitMenuChildren(
-    BuildContext context, RepoState state, GitCommit commit) {
-  final branch = state.currentBranch;
-  final isHead =
-      commit.refs.any((r) => r == 'HEAD' || r.startsWith('HEAD -> '));
+bool _isHead(GitCommit commit) =>
+    commit.refs.any((r) => r == 'HEAD' || r.startsWith('HEAD -> '));
 
-  final remoteRefs = commit.refs
+/// Branch refs carried by a commit, split into remote (`origin/x`) and local.
+({List<String> remote, List<String> local}) _refsOf(GitCommit commit) {
+  final remote = commit.refs
       .where((r) => r.contains('/') && !r.startsWith('tag:'))
       .toList();
-  final localRefs = <String>[];
+  final local = <String>[];
   for (final ref in commit.refs) {
     if (ref.startsWith('HEAD -> ')) {
-      localRefs.add(ref.substring('HEAD -> '.length));
-    } else if (ref != 'HEAD' &&
-        !ref.startsWith('tag:') &&
-        !ref.contains('/')) {
-      localRefs.add(ref);
+      local.add(ref.substring('HEAD -> '.length));
+    } else if (ref != 'HEAD' && !ref.startsWith('tag:') && !ref.contains('/')) {
+      local.add(ref);
     }
   }
+  return (remote: remote, local: local);
+}
 
-  void handle(String v) =>
-      _dispatch(context, state, commit, branch, isHead, v);
-
-  // Checkout targets: remote/local branches at the commit, then the commit.
-  final checkoutItems = <Widget>[
-    for (final r in remoteRefs)
-      _leaf(r, () => handle('checkout:${r.substring(r.indexOf('/') + 1)}')),
-    for (final b in localRefs) _leaf(b, () => handle('checkout:$b')),
-    _leaf('this commit', () => handle('checkoutCommit')),
-  ];
-  final worktreeItems = <Widget>[
-    for (final r in remoteRefs) _leaf(r, () => handle('worktree:$r')),
-    for (final b in localRefs) _leaf(b, () => handle('worktree:$b')),
-    _leaf('this commit', () => handle('worktree:__commit__')),
-  ];
-  final refLabel = remoteRefs.isNotEmpty ? remoteRefs.first : 'origin/$branch';
-
-  return [
-    _leaf('Pull (fast-forward if possible)', () => handle('pull')),
-    _leaf('Push', () => handle('push')),
-    _leaf('Set Upstream', () => handle('setUpstream')),
-    _divider,
-    _submenu('Checkout', checkoutItems),
-    _submenu('Create worktree from', worktreeItems),
-    _divider,
-    _leaf('Create branch here', () => handle('createBranch')),
+Widget _resetSubmenu(String branch, void Function(String) handle) =>
     _submenu('Reset $branch to this commit', [
       _leaf('Soft — keep all changes staged', () => handle('reset:soft')),
       _leaf('Mixed — keep changes unstaged', () => handle('reset:mixed')),
       _leaf('Hard — discard all changes', () => handle('reset:hard'),
           color: AppColors.red),
-    ]),
-    _leaf('Edit commit message', () => handle('editMessage')),
+    ]);
+
+/// The trimmed **commit** menu (right-clicking a commit row): commit-scoped
+/// actions only, plus Cherry pick and Rebase onto this commit.
+List<Widget> buildCommitMenuChildren(
+    BuildContext context, RepoState state, GitCommit commit) {
+  final branch = state.currentBranch;
+  final isHead = _isHead(commit);
+  void handle(String v) => _dispatch(context, state, commit, branch, isHead, v);
+
+  return [
+    _leaf('Checkout this commit', () => handle('checkoutCommit')),
+    _leaf('Create worktree from this commit',
+        () => handle('worktree:__commit__')),
+    _divider,
+    _leaf('Create branch here', () => handle('createBranch')),
+    _leaf('Cherry pick commit', () => handle('cherry')),
+    _leaf('Rebase $branch onto this commit', () => handle('rebaseOnto')),
+    _resetSubmenu(branch, handle),
     _leaf('Revert commit', () => handle('revert')),
     _divider,
-    _leaf('Drop commit', () => handle('drop')),
-    _leaf('Move commit down', () => handle('moveDown')),
-    _divider,
-    _leaf('Start a pull request to origin from $refLabel',
-        () => handle('startPR')),
-    _divider,
-    _leaf('Apply patch', () => handle('applyPatch')),
-    _leaf('Rename $branch', () => handle('renameBranch')),
-    _leaf('Delete $branch', () => handle('deleteBranch')),
-    _leaf('Delete origin/$branch', () => handle('deleteRemote')),
-    _leaf('Delete $branch and origin/$branch', () => handle('deleteBoth')),
-    _divider,
-    _leaf('Copy branch name', () => handle('copyBranch')),
     _leaf('Copy commit sha', () => handle('copySha')),
-    _leaf('Copy link to branch: origin/$branch', () => handle('copyBranchLink')),
     _leaf('Copy link to this commit on remote: origin',
         () => handle('copyCommitLink')),
     _leaf('Create patch from commit', () => handle('createPatch')),
     _leaf('Share commit as Cloud Patch', () => handle('cloudPatch')),
     _divider,
+    _leaf('Compare commit against working directory', () => handle('compare')),
+    _divider,
+    _leaf('Create tag here', () => handle('tag')),
+    _leaf('Create annotated tag here', () => handle('annotatedTag')),
+  ];
+}
+
+/// The **branch** menu (right-clicking a branch pill in the BRANCH/TAG column).
+/// [branchRef] is the clicked pill's ref (e.g. `development` or
+/// `origin/ck/auth-refactor`). When the clicked branch is the currently
+/// checked-out branch it shows the full local-branch menu; otherwise it shows
+/// the reduced other-branch menu (merge/rebase against it, no push/rename/etc).
+List<Widget> buildBranchMenuChildren(
+    BuildContext context, RepoState state, GitCommit commit,
+    {required String branchRef}) {
+  final isRemote = branchRef.contains('/');
+  // Short branch name (strip the remote name, keeping any nested path):
+  // origin/ck/auth-refactor -> ck/auth-refactor.
+  final shortName =
+      isRemote ? branchRef.substring(branchRef.indexOf('/') + 1) : branchRef;
+  final isCurrent = shortName == state.currentBranch;
+  final isHead = _isHead(commit);
+  final refs = _refsOf(commit);
+  // Dispatch uses [shortName] as the branch it acts on (rename/delete/copy…).
+  void handle(String v) =>
+      _dispatch(context, state, commit, shortName, isHead, v);
+
+  final checkoutItems = <Widget>[
+    for (final r in refs.remote)
+      _leaf(r, () => handle('checkout:${r.substring(r.indexOf('/') + 1)}')),
+    for (final b in refs.local) _leaf(b, () => handle('checkout:$b')),
+    _leaf('this commit', () => handle('checkoutCommit')),
+  ];
+  final worktreeItems = <Widget>[
+    for (final r in refs.remote) _leaf(r, () => handle('worktree:$r')),
+    for (final b in refs.local) _leaf(b, () => handle('worktree:$b')),
+    _leaf('this commit', () => handle('worktree:__commit__')),
+  ];
+  final refLabel =
+      refs.remote.isNotEmpty ? refs.remote.first : 'origin/$shortName';
+  final pinSolo = [
     _submenu('Pin to Left', [
       _leaf(refLabel, () => handle('pin')),
       _leaf('this commit', () => handle('pin')),
@@ -143,6 +160,90 @@ List<Widget> buildCommitMenuChildren(
       _leaf(refLabel, () => handle('solo')),
       _leaf('this commit', () => handle('solo')),
     ]),
+  ];
+
+  // Right-clicking a branch other than the checked-out one: offer to
+  // integrate it into the current branch, plus the shared commit actions.
+  if (!isCurrent) {
+    final current = state.currentBranch;
+    final prTarget = isRemote ? branchRef : 'origin/$shortName';
+    return [
+      _leaf('Merge $branchRef into $current', () => handle('merge:$branchRef')),
+      _leaf('Rebase $current onto $branchRef',
+          () => handle('rebaseBranch:$branchRef')),
+      _divider,
+      _submenu('Checkout', checkoutItems),
+      _divider,
+      _submenu('Create worktree from', worktreeItems),
+      _divider,
+      _leaf('Create branch here', () => handle('createBranch')),
+      _leaf('Cherry pick commit', () => handle('cherry')),
+      _resetSubmenu(current, handle),
+      _leaf('Revert commit', () => handle('revert')),
+      _divider,
+      _leaf('Start a pull request to $prTarget from origin/$current',
+          () => handle('startPRInto:$shortName')),
+      _divider,
+      if (isRemote)
+        _leaf('Delete origin/$shortName', () => handle('deleteRemote'))
+      else
+        _leaf('Delete $shortName', () => handle('deleteBranch')),
+      _divider,
+      _leaf('Copy branch name', () => handle('copyBranch')),
+      _leaf('Copy commit sha', () => handle('copySha')),
+      _leaf('Copy link to branch: origin/$shortName',
+          () => handle('copyBranchLink')),
+      _leaf('Copy link to this commit on remote: origin',
+          () => handle('copyCommitLink')),
+      _leaf('Create patch from commit', () => handle('createPatch')),
+      _leaf('Share commit as Cloud Patch', () => handle('cloudPatch')),
+      _divider,
+      ...pinSolo,
+      _divider,
+      _leaf('Compare commit against working directory',
+          () => handle('compare')),
+      _divider,
+      _leaf('Create tag here', () => handle('tag')),
+      _leaf('Create annotated tag here', () => handle('annotatedTag')),
+    ];
+  }
+
+  return [
+    _leaf('Pull (fast-forward if possible)', () => handle('pull')),
+    _leaf('Push', () => handle('push')),
+    _leaf('Set Upstream', () => handle('setUpstream')),
+    _divider,
+    _submenu('Checkout', checkoutItems),
+    _divider,
+    _submenu('Create worktree from', worktreeItems),
+    _divider,
+    _leaf('Create branch here', () => handle('createBranch')),
+    _resetSubmenu(shortName, handle),
+    _leaf('Edit commit message', () => handle('editMessage')),
+    _leaf('Revert commit', () => handle('revert')),
+    _divider,
+    _leaf('Drop commit', () => handle('drop')),
+    _divider,
+    _leaf('Start a pull request to origin from $refLabel',
+        () => handle('startPR')),
+    _divider,
+    _leaf('Apply patch', () => handle('applyPatch')),
+    _leaf('Rename $shortName', () => handle('renameBranch')),
+    _leaf('Delete $shortName', () => handle('deleteBranch')),
+    _leaf('Delete origin/$shortName', () => handle('deleteRemote')),
+    _leaf('Delete $shortName and origin/$shortName',
+        () => handle('deleteBoth')),
+    _divider,
+    _leaf('Copy branch name', () => handle('copyBranch')),
+    _leaf('Copy commit sha', () => handle('copySha')),
+    _leaf('Copy link to branch: origin/$shortName',
+        () => handle('copyBranchLink')),
+    _leaf('Copy link to this commit on remote: origin',
+        () => handle('copyCommitLink')),
+    _leaf('Create patch from commit', () => handle('createPatch')),
+    _leaf('Share commit as Cloud Patch', () => handle('cloudPatch')),
+    _divider,
+    ...pinSolo,
     _divider,
     _leaf('Compare commit against working directory', () => handle('compare')),
     _divider,
@@ -180,10 +281,31 @@ Future<void> _dispatch(BuildContext context, RepoState state,
     }
     return;
   }
+  if (action.startsWith('merge:')) {
+    final target = action.substring('merge:'.length);
+    return runRepoAction(context, () => state.merge(target),
+        success: 'Merged $target into ${state.currentBranch}');
+  }
+  if (action.startsWith('rebaseBranch:')) {
+    final target = action.substring('rebaseBranch:'.length);
+    return runRepoAction(context, () => state.rebaseOnto(target),
+        success: 'Rebased ${state.currentBranch} onto $target');
+  }
+  if (action.startsWith('startPRInto:')) {
+    final target = action.substring('startPRInto:'.length);
+    final url = gitPrCreateUrlInto(
+        await state.git.remoteUrl(), target, state.currentBranch);
+    if (url == null) return _toast(context, 'No remote URL configured.');
+    await GitService.openUrl(url);
+    return _toast(context, 'Opening pull request page…');
+  }
   if (action.startsWith('reset:')) {
+    // Reset always moves the checked-out branch, regardless of which pill was
+    // right-clicked.
     final mode = action.substring('reset:'.length);
     if (mode == 'hard' &&
-        !await _confirm(context, 'Reset $branch to this commit (hard)?',
+        !await _confirm(
+            context, 'Reset ${state.currentBranch} to this commit (hard)?',
             'This discards all changes after ${commit.shortHash}. '
                 'This cannot be undone.')) {
       return;
@@ -203,6 +325,12 @@ Future<void> _dispatch(BuildContext context, RepoState state,
     case 'checkoutCommit':
       return runRepoAction(context, () => state.checkoutCommit(sha),
           success: 'Checked out ${commit.shortHash}');
+    case 'cherry':
+      return runRepoAction(context, () => state.cherryPick(sha),
+          success: 'Cherry-picked ${commit.shortHash}');
+    case 'rebaseOnto':
+      return runRepoAction(context, () => state.rebaseOnto(sha),
+          success: 'Rebased $branch onto ${commit.shortHash}');
     case 'createBranch':
       final name = await promptText(context,
           title: 'Create branch here', hint: 'branch name', confirm: 'Create');

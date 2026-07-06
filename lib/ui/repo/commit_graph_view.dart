@@ -100,6 +100,12 @@ class _CommitGraphViewState extends State<CommitGraphView> {
   final FocusNode _searchFocus = FocusNode();
   GitCommit? _menuCommit;
 
+  /// Which menu the shared anchor shows: the trimmed commit menu, or the fuller
+  /// branch menu (opened by right-clicking a branch pill). [_menuBranchRef] is
+  /// the clicked branch's short name for the branch menu.
+  bool _branchMenu = false;
+  String? _menuBranchRef;
+
   @override
   void initState() {
     super.initState();
@@ -128,7 +134,25 @@ class _CommitGraphViewState extends State<CommitGraphView> {
           context, state, ref, commit.stashIndex ?? 0, globalPosition);
       return;
     }
-    setState(() => _menuCommit = commit);
+    setState(() {
+      _menuCommit = commit;
+      _branchMenu = false;
+      _menuBranchRef = null;
+    });
+    _openAt(globalPosition);
+  }
+
+  /// Opens the branch menu for a right-clicked branch pill.
+  void _openBranchMenu(String branchRef, GitCommit commit, Offset globalPosition) {
+    setState(() {
+      _menuCommit = commit;
+      _branchMenu = true;
+      _menuBranchRef = branchRef;
+    });
+    _openAt(globalPosition);
+  }
+
+  void _openAt(Offset globalPosition) {
     final box = _anchorKey.currentContext?.findRenderObject() as RenderBox?;
     final local = box?.globalToLocal(globalPosition) ?? globalPosition;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -254,6 +278,7 @@ class _CommitGraphViewState extends State<CommitGraphView> {
                               alt: rowIndex.isOdd,
                               onTap: () => state.selectCommit(row.commit),
                               onContextMenu: _openMenu,
+                              onBranchMenu: _openBranchMenu,
                               highlight: state.commitSearch,
                             );
                           },
@@ -322,7 +347,10 @@ class _CommitGraphViewState extends State<CommitGraphView> {
                 style: commitMenuStyle,
                 menuChildren: _menuCommit == null
                     ? const <Widget>[]
-                    : buildCommitMenuChildren(context, state, _menuCommit!),
+                    : (_branchMenu && _menuBranchRef != null
+                        ? buildBranchMenuChildren(context, state, _menuCommit!,
+                            branchRef: _menuBranchRef!)
+                        : buildCommitMenuChildren(context, state, _menuCommit!)),
                 child: SizedBox.shrink(key: _anchorKey),
               ),
             ],
@@ -663,6 +691,10 @@ class _CommitRow extends StatefulWidget {
   final VoidCallback onTap;
   final void Function(GitCommit commit, Offset globalPosition) onContextMenu;
 
+  /// Opens the branch menu for a right-clicked branch pill in this row.
+  final void Function(String branchRef, GitCommit commit, Offset globalPosition)
+      onBranchMenu;
+
   /// Active search query — matching spans in the message are highlighted.
   final String highlight;
 
@@ -675,6 +707,7 @@ class _CommitRow extends StatefulWidget {
     required this.selected,
     required this.onTap,
     required this.onContextMenu,
+    required this.onBranchMenu,
     this.highlight = '',
     this.alt = false,
   });
@@ -685,6 +718,10 @@ class _CommitRow extends StatefulWidget {
 
 class _CommitRowState extends State<_CommitRow> {
   bool _hover = false;
+  // The branch ref the cursor is currently over (set by branch pills in
+  // _refLabels), so a right-click can open the branch menu instead of the
+  // commit menu. Null when the cursor isn't over a branch pill.
+  String? _hoverBranchRef;
 
   /// Builds a DateFormat from a user-supplied pattern + locale, falling back to
   /// a safe default if the pattern is invalid.
@@ -865,7 +902,12 @@ class _CommitRowState extends State<_CommitRow> {
         onTap: widget.onTap,
         onSecondaryTapDown: (details) {
           widget.onTap();
-          widget.onContextMenu(commit, details.globalPosition);
+          final branchRef = _hoverBranchRef;
+          if (branchRef != null) {
+            widget.onBranchMenu(branchRef, commit, details.globalPosition);
+          } else {
+            widget.onContextMenu(commit, details.globalPosition);
+          }
         },
         child: row,
       ),
@@ -975,8 +1017,17 @@ class _CommitRowState extends State<_CommitRow> {
           padding: const EdgeInsets.only(right: 4),
           child: checkout == null
               ? pill
+              // Track which branch pill the cursor is over so the row's
+              // right-click can open the branch menu for it (avoids fragile
+              // nested-gesture competition with the row's context menu).
               : MouseRegion(
                   cursor: SystemMouseCursors.click,
+                  // Pass the pill's full ref (e.g. `origin/feat/x`) so the
+                  // branch menu can label/act on the remote-tracking ref.
+                  onEnter: (_) => _hoverBranchRef = name,
+                  onExit: (_) {
+                    if (_hoverBranchRef == name) _hoverBranchRef = null;
+                  },
                   child: GestureDetector(
                     onDoubleTap: () => runRepoAction(
                       context,

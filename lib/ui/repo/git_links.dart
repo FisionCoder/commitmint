@@ -42,6 +42,20 @@ String? gitPrCreateUrl(String remote, String branch) {
   return '$base/compare/${Uri.encodeComponent(branch)}?expand=1';
 }
 
+/// URL to open the "create pull request" page for merging [head] into [base]
+/// (e.g. right-clicking another branch and opening a PR from the current
+/// branch into it).
+String? gitPrCreateUrlInto(String remote, String base, String head) {
+  final b = gitHttpBase(remote);
+  if (b == null) return null;
+  if (_isAzure(b)) {
+    return '$b/pullrequestcreate?sourceRef=${Uri.encodeComponent(head)}'
+        '&targetRef=${Uri.encodeComponent(base)}';
+  }
+  return '$b/compare/${Uri.encodeComponent(base)}...'
+      '${Uri.encodeComponent(head)}?expand=1';
+}
+
 /// URL to view a specific pull request by id.
 String? gitPrViewUrl(String remote, int prId) {
   final base = gitHttpBase(remote);

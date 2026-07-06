@@ -618,17 +618,35 @@ class _TabStrip extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (var i = 0; i < app.tabs.length; i++)
-                    _Tab(index: i, tab: app.tabs[i]),
-                  _AddTabButton(),
-                ],
-              ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Tabs share the available width, shrinking from a comfortable
+                // max toward a legible min as more tabs open. Below the min they
+                // stop shrinking and the strip scrolls horizontally instead.
+                const minTabWidth = 52.0;
+                const maxTabWidth = 172.0;
+                final n = app.tabs.length;
+                final avail = constraints.maxWidth;
+                var width = n == 0 ? maxTabWidth : avail / n;
+                width = width.clamp(minTabWidth, maxTabWidth);
+                final fits = width * n <= avail + 0.5;
+                final row = Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < n; i++)
+                      _Tab(index: i, tab: app.tabs[i], width: width),
+                  ],
+                );
+                return fits
+                    ? Align(alignment: Alignment.centerLeft, child: row)
+                    : SingleChildScrollView(
+                        scrollDirection: Axis.horizontal, child: row);
+              },
             ),
           ),
+          _AddTabButton(),
+          const _TabsDropdown(),
+          const SizedBox(width: 4),
           IconAction(
             icon: Icons.extension_outlined,
             tooltip: 'Integrations',
@@ -652,7 +670,8 @@ class _TabStrip extends StatelessWidget {
 class _Tab extends StatefulWidget {
   final int index;
   final AppTab tab;
-  const _Tab({required this.index, required this.tab});
+  final double width;
+  const _Tab({required this.index, required this.tab, this.width = 172});
 
   @override
   State<_Tab> createState() => _TabState();
@@ -704,7 +723,7 @@ class _TabState extends State<_Tab> {
         onTap: () => app.selectTab(widget.index),
         child: SizedBox(
           height: 40,
-          width: 172,
+          width: widget.width,
           child: Container(
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
@@ -748,7 +767,11 @@ class _TabState extends State<_Tab> {
                                         : AppColors.textSecondary)),
                           ),
                         ),
-                        if (tab.kind != TabKind.launchpad) ...[
+                        // When squashed, the close button only shows on the
+                        // active or hovered tab so narrow tabs keep room for
+                        // their label; wide tabs always show it.
+                        if (tab.kind != TabKind.launchpad &&
+                            (active || _hover || widget.width >= 130)) ...[
                           const SizedBox(width: 6),
                           InkWell(
                             onTap: () => app.closeTab(widget.index),
@@ -794,6 +817,230 @@ class _AddTabButton extends StatelessWidget {
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: 12),
         child: Icon(Icons.add, size: 18, color: AppColors.textSecondary),
+      ),
+    );
+  }
+}
+
+IconData _tabIcon(AppTab tab) {
+  switch (tab.kind) {
+    case TabKind.launchpad:
+      return Icons.home_outlined;
+    case TabKind.integrations:
+      return Icons.extension_outlined;
+    case TabKind.repo:
+      return Icons.account_tree_outlined;
+  }
+}
+
+/// The chevron button at the end of the tab strip: opens a searchable list of
+/// all open tabs (also reachable via Ctrl+Shift+A).
+class _TabsDropdown extends StatefulWidget {
+  const _TabsDropdown();
+
+  @override
+  State<_TabsDropdown> createState() => _TabsDropdownState();
+}
+
+class _TabsDropdownState extends State<_TabsDropdown> {
+  final _controller = MenuController();
+
+  @override
+  Widget build(BuildContext context) {
+    return MenuAnchor(
+      controller: _controller,
+      // Right-align the 300px panel under the chevron (Flutter also clamps it
+      // to stay on-screen).
+      alignmentOffset: const Offset(-276, 4),
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(AppColors.surfaceRaised),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        shadowColor: WidgetStatePropertyAll(Colors.black.withValues(alpha: 0.4)),
+        padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+      menuChildren: [_TabsSearchPanel(controller: _controller)],
+      builder: (context, controller, child) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Tooltip(
+          message: 'Tabs list (Ctrl+Shift+A)',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: () =>
+                controller.isOpen ? controller.close() : controller.open(),
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Icon(Icons.keyboard_arrow_down,
+                  size: 20, color: AppColors.textSecondary),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TabsSearchPanel extends StatefulWidget {
+  final MenuController controller;
+  const _TabsSearchPanel({required this.controller});
+
+  @override
+  State<_TabsSearchPanel> createState() => _TabsSearchPanelState();
+}
+
+class _TabsSearchPanelState extends State<_TabsSearchPanel> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final q = _query.trim().toLowerCase();
+    final matches = <int>[
+      for (var i = 0; i < app.tabs.length; i++)
+        if (q.isEmpty || app.tabTitle(app.tabs[i]).toLowerCase().contains(q)) i,
+    ];
+
+    return SizedBox(
+      width: 300,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: TextField(
+              autofocus: true,
+              onChanged: (v) => setState(() => _query = v),
+              style: const TextStyle(fontSize: 13),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Search Tabs',
+                prefixIcon: const Icon(Icons.search, size: 16),
+                prefixIconConstraints:
+                    const BoxConstraints(minWidth: 34, minHeight: 0),
+                filled: true,
+                fillColor: AppColors.surface,
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  borderSide: BorderSide(color: AppColors.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  borderSide: BorderSide(color: AppColors.accent),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 2, 14, 6),
+            child: Text('OPEN TABS',
+                style: TextStyle(
+                    fontSize: 11,
+                    letterSpacing: 0.6,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textMuted)),
+          ),
+          // A plain SingleChildScrollView (not a shrink-wrapping ListView) so
+          // the MenuAnchor overlay can measure the panel's intrinsic size.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 360),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (matches.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 8, 14, 16),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('No matching tabs',
+                            style: TextStyle(
+                                fontSize: 13, color: AppColors.textMuted)),
+                      ),
+                    ),
+                  for (final i in matches)
+                    _TabsSearchRow(
+                      active: i == app.activeTabIndex,
+                      title: app.tabTitle(app.tabs[i]),
+                      icon: _tabIcon(app.tabs[i]),
+                      closable: app.tabs[i].kind != TabKind.launchpad,
+                      onSelect: () {
+                        app.selectTab(i);
+                        widget.controller.close();
+                      },
+                      onClose: () => app.closeTab(i),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TabsSearchRow extends StatelessWidget {
+  final bool active;
+  final bool closable;
+  final String title;
+  final IconData icon;
+  final VoidCallback onSelect;
+  final VoidCallback onClose;
+  const _TabsSearchRow({
+    required this.active,
+    required this.closable,
+    required this.title,
+    required this.icon,
+    required this.onSelect,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onSelect,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: active ? AppColors.selection : null,
+          border: Border(
+            top: BorderSide(color: AppColors.border.withValues(alpha: 0.5)),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: AppColors.textMuted),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(title,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                      color: active
+                          ? AppColors.textPrimary
+                          : AppColors.textSecondary)),
+            ),
+            if (closable) ...[
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: onClose,
+                borderRadius: BorderRadius.circular(4),
+                child: Padding(
+                  padding: const EdgeInsets.all(2),
+                  child:
+                      Icon(Icons.close, size: 16, color: AppColors.textMuted),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

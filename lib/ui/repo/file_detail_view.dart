@@ -196,20 +196,65 @@ class _DiffContent extends StatelessWidget {
                   ? 'No staged changes for this file.'
                   : 'No unstaged changes for this file.');
         }
-        return Scrollbar(
-          child: SingleChildScrollView(
-            primary: true,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final hunk in diff.hunks)
-                  _HunkWidget(
-                      diff: diff, hunk: hunk, state: state, file: file),
-              ],
-            ),
+        return _CodeScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final hunk in diff.hunks)
+                _HunkWidget(diff: diff, hunk: hunk, state: state, file: file),
+            ],
           ),
         );
       },
+    );
+  }
+}
+
+/// A two-axis scroll region for code (diff / file / etc.): the content scrolls
+/// both vertically and horizontally (so long lines aren't clipped — you can
+/// scroll to see them), and text is selectable via [SelectionArea]. The child
+/// is sized to its intrinsic width so row backgrounds span the full line width.
+class _CodeScrollView extends StatefulWidget {
+  final Widget child;
+  const _CodeScrollView({required this.child});
+
+  @override
+  State<_CodeScrollView> createState() => _CodeScrollViewState();
+}
+
+class _CodeScrollViewState extends State<_CodeScrollView> {
+  final _vertical = ScrollController();
+  final _horizontal = ScrollController();
+
+  @override
+  void dispose() {
+    _vertical.dispose();
+    _horizontal.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scrollbar(
+      controller: _vertical,
+      thumbVisibility: true,
+      child: Scrollbar(
+        controller: _horizontal,
+        thumbVisibility: true,
+        // Track the inner (horizontal, depth 1) scroll view rather than the
+        // outer vertical one.
+        notificationPredicate: (n) => n.depth == 1,
+        child: SingleChildScrollView(
+          controller: _vertical,
+          child: SingleChildScrollView(
+            controller: _horizontal,
+            scrollDirection: Axis.horizontal,
+            child: SelectionArea(
+              child: IntrinsicWidth(child: widget.child),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -234,68 +279,53 @@ class _HunkWidget extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Hunk header row
+        // Hunk header row. Content is clustered at the left so the hunk header
+        // and its action buttons stay visible at the horizontal scroll origin.
         Container(
           color: const Color(0xFF202733),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-          child: LayoutBuilder(builder: (context, c) {
-            // Collapse the action buttons to icons when the pane is narrow.
-            final compact = c.maxWidth < 320;
-            return Row(
-              children: [
-                Expanded(
-                  child: TruncatedText(hunk.header,
-                      style: _mono.copyWith(
-                          color: AppColors.accentTeal, fontSize: 12)),
-                ),
-                if (canStageHunks) ...[
-                  if (!state.viewStaged) ...[
-                    _HunkBtn(
-                      label: 'Discard Hunk',
-                      icon: Icons.undo,
-                      compact: compact,
-                      color: AppColors.red,
-                      onTap: () => runRepoAction(
-                          context, () => state.discardHunk(diff, hunk),
-                          success: 'Hunk discarded'),
-                    ),
-                    const SizedBox(width: 6),
-                    _HunkBtn(
-                      label: 'Stage Hunk',
-                      icon: Icons.add,
-                      compact: compact,
-                      color: AppColors.green,
-                      onTap: () => runRepoAction(
-                          context, () => state.stageHunk(diff, hunk),
-                          success: 'Hunk staged'),
-                    ),
-                  ] else
-                    _HunkBtn(
-                      label: 'Unstage Hunk',
-                      icon: Icons.remove,
-                      compact: compact,
-                      color: AppColors.amber,
-                      onTap: () => runRepoAction(
-                          context, () => state.unstageHunk(diff, hunk),
-                          success: 'Hunk unstaged'),
-                    ),
-                ],
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SelectionContainer.disabled(
+                child: Text(hunk.header,
+                    style: _mono.copyWith(
+                        color: AppColors.accentTeal, fontSize: 12)),
+              ),
+              if (canStageHunks) ...[
+                const SizedBox(width: 12),
+                if (!state.viewStaged) ...[
+                  _HunkBtn(
+                    label: 'Discard Hunk',
+                    icon: Icons.undo,
+                    color: AppColors.red,
+                    onTap: () => runRepoAction(
+                        context, () => state.discardHunk(diff, hunk),
+                        success: 'Hunk discarded'),
+                  ),
+                  const SizedBox(width: 6),
+                  _HunkBtn(
+                    label: 'Stage Hunk',
+                    icon: Icons.add,
+                    color: AppColors.green,
+                    onTap: () => runRepoAction(
+                        context, () => state.stageHunk(diff, hunk),
+                        success: 'Hunk staged'),
+                  ),
+                ] else
+                  _HunkBtn(
+                    label: 'Unstage Hunk',
+                    icon: Icons.remove,
+                    color: AppColors.amber,
+                    onTap: () => runRepoAction(
+                        context, () => state.unstageHunk(diff, hunk),
+                        success: 'Hunk unstaged'),
+                  ),
               ],
-            );
-          }),
-        ),
-        // Lines scroll horizontally; full-intrinsic-width keeps row backgrounds.
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: IntrinsicWidth(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final line in hunk.lines) _DiffLineRow(line: line),
-              ],
-            ),
+            ],
           ),
         ),
+        for (final line in hunk.lines) _DiffLineRow(line: line),
       ],
     );
   }
@@ -333,12 +363,15 @@ class _DiffLineRow extends StatelessWidget {
         break;
     }
     if (line.type == DiffLineType.meta) {
-      return Container(
-        color: bg,
-        padding: const EdgeInsets.only(left: _gutter * 2 + 18, top: 1, bottom: 1),
-        child: Text('\\ ${line.text}',
-            style: _mono.copyWith(
-                color: AppColors.textMuted, fontStyle: FontStyle.italic)),
+      return SelectionContainer.disabled(
+        child: Container(
+          color: bg,
+          padding:
+              const EdgeInsets.only(left: _gutter * 2 + 18, top: 1, bottom: 1),
+          child: Text('\\ ${line.text}',
+              style: _mono.copyWith(
+                  color: AppColors.textMuted, fontStyle: FontStyle.italic)),
+        ),
       );
     }
     return Container(
@@ -346,13 +379,23 @@ class _DiffLineRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _num(line.oldNo),
-          _num(line.newNo),
-          SizedBox(
-            width: 18,
-            child: Text(sign,
-                textAlign: TextAlign.center,
-                style: _mono.copyWith(color: signColor)),
+          // Line numbers and the +/- sign are non-selectable so copying a
+          // selection yields just the code text.
+          SelectionContainer.disabled(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _num(line.oldNo),
+                _num(line.newNo),
+                SizedBox(
+                  width: 18,
+                  child: Text(sign,
+                      textAlign: TextAlign.center,
+                      style: _mono.copyWith(color: signColor)),
+                ),
+              ],
+            ),
           ),
           Padding(
             padding: const EdgeInsets.only(right: 24),
@@ -391,41 +434,35 @@ class _FileContent extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 2)));
         }
         final lines = snap.data!.split('\n');
-        return Scrollbar(
-          child: SingleChildScrollView(
-            primary: true,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: IntrinsicWidth(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+        return _CodeScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < lines.length; i++)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (var i = 0; i < lines.length; i++)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: _gutter,
-                            padding: const EdgeInsets.only(right: 8),
-                            alignment: Alignment.centerRight,
-                            child: Text('${i + 1}',
-                                style: _mono.copyWith(
-                                    color: AppColors.textMuted,
-                                    fontSize: 11.5)),
-                          ),
-                          const SizedBox(width: 12),
-                          Padding(
-                            padding: const EdgeInsets.only(right: 24),
-                            child: Text(lines[i].isEmpty ? ' ' : lines[i],
-                                style: _mono.copyWith(
-                                    color: AppColors.textPrimary)),
-                          ),
-                        ],
+                    // Line number is non-selectable so copying yields code only.
+                    SelectionContainer.disabled(
+                      child: Container(
+                        width: _gutter,
+                        padding: const EdgeInsets.only(right: 8),
+                        alignment: Alignment.centerRight,
+                        child: Text('${i + 1}',
+                            style: _mono.copyWith(
+                                color: AppColors.textMuted, fontSize: 11.5)),
                       ),
+                    ),
+                    const SizedBox(width: 12),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 24),
+                      child: Text(lines[i].isEmpty ? ' ' : lines[i],
+                          style:
+                              _mono.copyWith(color: AppColors.textPrimary)),
+                    ),
                   ],
                 ),
-              ),
-            ),
+            ],
           ),
         );
       },
@@ -614,7 +651,6 @@ class _OutlineBtn extends StatelessWidget {
 class _HunkBtn extends StatelessWidget {
   final String label;
   final IconData icon;
-  final bool compact;
   final Color color;
   final VoidCallback onTap;
   const _HunkBtn({
@@ -622,27 +658,27 @@ class _HunkBtn extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.onTap,
-    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: compact ? label : '',
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(3),
-        child: Container(
-          padding: EdgeInsets.symmetric(
-              horizontal: compact ? 5 : 8, vertical: 2),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(3),
-            border: Border.all(color: color.withValues(alpha: 0.6)),
-            color: color.withValues(alpha: 0.12),
-          ),
-          child: compact
-              ? Icon(icon, size: 14, color: color)
-              : Text(label, style: TextStyle(fontSize: 11.5, color: color)),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(3),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(3),
+          border: Border.all(color: color.withValues(alpha: 0.6)),
+          color: color.withValues(alpha: 0.12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: color),
+            const SizedBox(width: 4),
+            Text(label, style: TextStyle(fontSize: 11.5, color: color)),
+          ],
         ),
       ),
     );

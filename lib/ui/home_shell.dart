@@ -15,6 +15,7 @@ import 'integrations/integrations_view.dart';
 import 'launchpad/launchpad_view.dart';
 import 'repo/repo_view.dart';
 import 'settings/settings_screen.dart';
+import 'update/update_dialog.dart';
 import 'widgets/common.dart';
 import 'widgets/mint_leaf.dart';
 import 'widgets/profile_avatar.dart';
@@ -127,6 +128,13 @@ class _HomeShellState extends State<HomeShell>
     windowManager.addListener(this);
     trayManager.addListener(this);
     _initTray();
+    // Silently check GitHub for a newer release shortly after launch; only
+    // surfaces a dialog if an update is actually available.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(seconds: 3), () {
+        if (mounted) checkForUpdatesOnStartup(context);
+      });
+    });
   }
 
   @override
@@ -359,6 +367,13 @@ class _FileMenu extends StatelessWidget {
                 style: TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
           ),
           child: const Text('Settings', style: TextStyle(fontSize: 13)),
+        ),
+        MenuItemButton(
+          onPressed: () => checkForUpdatesManually(context),
+          leadingIcon: Icon(Icons.system_update_alt,
+              size: 15, color: AppColors.textSecondary),
+          child: const Text('Check for Updates…',
+              style: TextStyle(fontSize: 13)),
         ),
         Padding(
           padding: EdgeInsets.symmetric(vertical: 4),

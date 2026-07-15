@@ -217,6 +217,22 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Moves the tab at [from] so it takes the slot at [to] (drag-to-reorder).
+  /// The launchpad stays pinned at index 0; the active tab follows its content.
+  void reorderTab(int from, int to) {
+    if (from == to) return;
+    if (from <= 0 || from >= tabs.length) return; // never move Home
+    to = to.clamp(1, tabs.length - 1); // never displace Home at index 0
+    final active = tabs[activeTabIndex];
+    final list = [...tabs];
+    final moved = list.removeAt(from);
+    list.insert(to, moved);
+    tabs = list;
+    activeTabIndex = tabs.indexOf(active).clamp(0, tabs.length - 1);
+    _persistTabs();
+    notifyListeners();
+  }
+
   // --------------------------------------------------- integrations ----
   /// Saved integrations of a given provider.
   List<Integration> integrationsOf(ProviderType p) =>

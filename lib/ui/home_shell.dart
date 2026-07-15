@@ -649,7 +649,7 @@ class _TabStrip extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     for (var i = 0; i < n; i++)
-                      _Tab(index: i, tab: app.tabs[i], width: width),
+                      _DraggableTab(index: i, tab: app.tabs[i], width: width),
                   ],
                 );
                 return fits
@@ -678,6 +678,74 @@ class _TabStrip extends StatelessWidget {
           const SizedBox(width: 8),
         ],
       ),
+    );
+  }
+}
+
+/// Wraps a [_Tab] so it can be dragged to reorder and act as a drop target.
+/// The launchpad (Home) can't be picked up and never yields index 0.
+class _DraggableTab extends StatelessWidget {
+  final int index;
+  final AppTab tab;
+  final double width;
+  const _DraggableTab(
+      {required this.index, required this.tab, required this.width});
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.read<AppState>();
+    final isHome = tab.kind == TabKind.launchpad;
+    final tabWidget = _Tab(index: index, tab: tab, width: width);
+
+    return DragTarget<int>(
+      // Don't accept a tab dropped onto itself.
+      onWillAcceptWithDetails: (d) => d.data != index,
+      onAcceptWithDetails: (d) =>
+          app.reorderTab(d.data, isHome ? 1 : index),
+      builder: (context, candidate, rejected) {
+        final hovering = candidate.isNotEmpty;
+        final content = isHome ? tabWidget : _draggable(tabWidget);
+        return Stack(
+          children: [
+            content,
+            if (hovering)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: AppColors.accent.withValues(alpha: 0.14),
+                      border: Border.all(color: AppColors.accent, width: 1.5),
+                      borderRadius:
+                          const BorderRadius.vertical(top: Radius.circular(8)),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _draggable(Widget child) {
+    return Draggable<int>(
+      data: index,
+      axis: Axis.horizontal,
+      dragAnchorStrategy: childDragAnchorStrategy,
+      feedback: Material(
+        color: Colors.transparent,
+        child: Opacity(
+          opacity: 0.9,
+          child: SizedBox(
+            width: width,
+            height: 40,
+            child: _Tab(index: index, tab: tab, width: width),
+          ),
+        ),
+      ),
+      // Leave an empty gap in the strip where the tab was picked up from.
+      childWhenDragging: SizedBox(width: width, height: 40),
+      child: child,
     );
   }
 }

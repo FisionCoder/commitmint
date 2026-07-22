@@ -42,6 +42,8 @@ class RepoState extends ChangeNotifier {
   List<GitRef> tags = [];
   List<GitRef> stashes = [];
   List<GitWorktree> worktrees = [];
+  List<GitRemote> remotes = [];
+  List<GitSubmodule> submodules = [];
   String currentBranch = '';
 
   /// Hash of the commit HEAD points at (the current branch tip). The graph pins
@@ -303,6 +305,8 @@ class RepoState extends ChangeNotifier {
       unstaged = changes.where((c) => !c.staged).toList();
       operation = await git.currentOperation();
       worktrees = await git.worktreeList();
+      remotes = await git.remotes();
+      submodules = await git.submodules();
 
       _recomputeGraph();
       loading = false;
@@ -770,6 +774,25 @@ class RepoState extends ChangeNotifier {
   Future<void> worktreePrune() => _runAction(() => git.worktreePrune());
   Future<List<String>> cleanPreview() => git.cleanPreview();
   Future<void> cleanUntracked() => _runAction(() => git.cleanUntracked());
+
+  // ---- remotes ----
+  Future<void> addRemote(String name, String url) =>
+      _runAction(() => git.addRemote(name, url));
+  Future<void> removeRemote(String name) =>
+      _runAction(() => git.removeRemote(name));
+  Future<void> renameRemote(String oldName, String newName) =>
+      _runAction(() => git.renameRemote(oldName, newName));
+  Future<void> setRemoteUrl(String name, String url) =>
+      _runAction(() => git.setRemoteUrl(name, url));
+
+  // ---- submodules ----
+  Future<void> submoduleUpdate() =>
+      _runAction(() => git.submoduleUpdate());
+  Future<void> submoduleSync() => _runAction(() => git.submoduleSync());
+
+  // ---- reflog / undo ----
+  Future<List<ReflogEntry>> loadReflog() => git.reflog();
+  Future<String> signatureStatus(String sha) => git.signatureStatus(sha);
   Future<void> moveCommitDown(String sha) =>
       _runAction(() => git.moveCommitDown(sha, currentBranch));
 

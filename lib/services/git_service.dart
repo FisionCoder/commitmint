@@ -87,6 +87,52 @@ class BlameLine {
   String get shortSha => sha.length >= 7 ? sha.substring(0, 7) : sha;
 }
 
+/// A configured remote (`git remote`).
+class GitRemote {
+  final String name;
+  final String fetchUrl;
+  final String pushUrl;
+  const GitRemote(
+      {required this.name, required this.fetchUrl, required this.pushUrl});
+}
+
+/// A submodule entry (`git submodule status`).
+class GitSubmodule {
+  final String path;
+  final String sha;
+
+  /// `git describe` output in parentheses, if any.
+  final String describe;
+
+  /// Leading status flag: ' ' in sync, '+' checked-out differs, '-' not
+  /// initialized, 'U' merge conflicts.
+  final String status;
+  const GitSubmodule({
+    required this.path,
+    required this.sha,
+    required this.describe,
+    required this.status,
+  });
+
+  bool get uninitialized => status == '-';
+  bool get modified => status == '+';
+}
+
+/// A `git reflog` entry.
+class ReflogEntry {
+  final String sha;
+
+  /// The selector, e.g. `HEAD@{2}`.
+  final String selector;
+
+  /// The action + message, e.g. `commit: fix thing` or `reset: moving to …`.
+  final String subject;
+  const ReflogEntry(
+      {required this.sha, required this.selector, required this.subject});
+
+  String get shortSha => sha.length >= 7 ? sha.substring(0, 7) : sha;
+}
+
 /// A multi-step git operation that can pause on conflicts and be
 /// continued/aborted.
 enum GitOperation { none, merge, rebase, cherryPick, revert }
@@ -738,6 +784,97 @@ class GitService {
     final r = await _run(['remote', 'get-url', remote]);
     if (r.exitCode != 0) return '';
     return (r.stdout as String).trim();
+  }
+
+  // ------------------------------------------------------------- remotes ----
+  Future<List<GitRemote>> remotes() async {
+    final r = await _run(['remote', '-v']);
+    if (r.exitCode != 0) return const [];
+    final fetch = <String, String>{};
+    final push = <String, String>{};
+    for (final line in (r.stdout as String).split('\n')) {
+      final m = RegExp(r'^(\S+)\s+(\S+)\s+\((fetch|push)\)$').firstMatch(line.trim());
+      if (m == null) continue;
+      if (m.group(3) == 'fetch') {
+        fetch[m.group(1)!] = m.group(2)!;
+      } else {
+        push[m.group(1)!] = m.group(2)!;
+      }
+    }
+    final names = {...fetch.keys, ...push.keys}.toList()..sort();
+    return [
+      for (final n in names)
+        GitRemote(name: n, fetchUrl: fetch[n] ?? '', pushUrl: push[n] ?? fetch[n] ?? ''),
+    ];
+  }
+
+  Future<void> addRemote(String name, String url) =>
+      _runOrThrow(['remote', 'add', name, url]);
+  Future<void> removeRemote(String name) =>
+      _runOrThrow(['remote', 'remove', name]);
+  Future<void> renameRemote(String oldName, String newName) =>
+      _runOrThrow(['remote', 'rename', oldName, newName]);
+  Future<void> setRemoteUrl(String name, String url) =>
+      _runOrThrow(['remote', 'set-url', name, url]);
+
+  // ---------------------------------------------------------- submodules ----
+  Future<List<GitSubmodule>> submodules() async {
+    final r = await _run(['submodule', 'status']);
+    if (r.exitCode != 0) return const [];
+    final out = <GitSubmodule>[];
+    for (final raw in (r.stdout as String).split('\n')) {
+      if (raw.trim().isEmpty) continue;
+      // Format: "<flag><sha> <path> (<describe>)" — flag is one of ' +-U'.
+      final flag = raw[0];
+      final rest = raw.substring(1);
+      final m = RegExp(r'^(\S+)\s+(\S+)(?:\s+\((.*)\))?').firstMatch(rest);
+      if (m == null) continue;
+      out.add(GitSubmodule(
+        status: flag == ' ' ? '' : flag,
+        sha: m.group(1)!,
+        path: m.group(2)!,
+        describe: m.group(3) ?? '',
+      ));
+    }
+    return out;
+  }
+
+  Future<void> submoduleUpdate({bool init = true}) => _runOrThrow([
+        'submodule',
+        'update',
+        if (init) '--init',
+        '--recursive',
+      ]);
+  Future<void> submoduleSync() =>
+      _runOrThrow(['submodule', 'sync', '--recursive']);
+
+  // -------------------------------------------------------------- reflog ----
+  Future<List<ReflogEntry>> reflog({int limit = 200}) async {
+    final r = await _run([
+      'reflog',
+      '-n',
+      '$limit',
+      '--format=%H$_us%gd$_us%gs$_rs',
+    ]);
+    if (r.exitCode != 0) return const [];
+    final out = <ReflogEntry>[];
+    for (final rec in (r.stdout as String).split(_rs)) {
+      final t = rec.trim();
+      if (t.isEmpty) continue;
+      final f = t.split(_us);
+      if (f.length < 3) continue;
+      out.add(ReflogEntry(sha: f[0], selector: f[1], subject: f[2]));
+    }
+    return out;
+  }
+
+  /// Signature status of [sha] via `%G?`: G(ood), B(ad), U(unknown validity),
+  /// X/Y/R(expired/etc), E(cannot check), N(one).
+  Future<String> signatureStatus(String sha) async {
+    final r = await _run(['log', '-1', '--format=%G?', sha]);
+    if (r.exitCode != 0) return 'N';
+    final v = (r.stdout as String).trim();
+    return v.isEmpty ? 'N' : v[0];
   }
 
   // ----------------------------------------------- branch-level operations ---

@@ -5,6 +5,7 @@ import '../../state/app_state.dart';
 import '../../state/repo_state.dart';
 import '../../theme/app_theme.dart';
 import '../widgets/common.dart';
+import 'reflog_dialog.dart';
 import 'repo_actions.dart';
 
 class RepoToolbar extends StatelessWidget {
@@ -64,8 +65,11 @@ class RepoToolbar extends StatelessWidget {
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
         ),
-      const ToolbarButton(icon: Icons.undo, label: 'Undo'),
-      const ToolbarButton(icon: Icons.redo, label: 'Redo'),
+      ToolbarButton(
+        icon: Icons.history,
+        label: 'History',
+        onTap: () => showReflogDialog(context, state),
+      ),
       _toolbarDivider(),
       ToolbarButton(
         icon: Icons.south,

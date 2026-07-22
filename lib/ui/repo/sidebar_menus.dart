@@ -382,6 +382,114 @@ Future<void> showStashContextMenu(
   }
 }
 
+// ------------------------------------------------------------ remote menu ---
+Future<void> showRemoteContextMenu(
+  BuildContext context,
+  RepoState state,
+  String remote,
+  Offset pos,
+) async {
+  final sel = await showMenu<String>(
+    context: context,
+    color: AppColors.surfaceRaised,
+    position: _at(context, pos),
+    constraints: const BoxConstraints(minWidth: 220),
+    items: [
+      _item('add', 'Add remote…'),
+      const PopupMenuDivider(),
+      _item('rename', 'Rename "$remote"'),
+      _item('seturl', 'Change URL…'),
+      _item('remove', 'Remove "$remote"', color: AppColors.red),
+    ],
+  );
+  if (sel == null || !context.mounted) return;
+
+  switch (sel) {
+    case 'add':
+      return _addRemoteFlow(context, state);
+    case 'rename':
+      final name = await promptText(context,
+          title: 'Rename remote',
+          hint: 'new remote name',
+          initial: remote,
+          confirm: 'Rename');
+      if (name != null && name.trim().isNotEmpty && context.mounted) {
+        return runRepoAction(
+            context, () => state.renameRemote(remote, name.trim()),
+            success: 'Renamed remote to ${name.trim()}');
+      }
+      return;
+    case 'seturl':
+      final url = await promptText(context,
+          title: 'Change URL for "$remote"',
+          hint: 'https://… or git@…',
+          initial: await state.git.remoteUrl(remote),
+          confirm: 'Save');
+      if (url != null && url.trim().isNotEmpty && context.mounted) {
+        return runRepoAction(
+            context, () => state.setRemoteUrl(remote, url.trim()),
+            success: 'Updated URL for $remote');
+      }
+      return;
+    case 'remove':
+      if (await _confirm(context, 'Remove remote "$remote"?',
+          'This removes the remote and its remote-tracking branches locally.')) {
+        return runRepoAction(context, () => state.removeRemote(remote),
+            success: 'Removed remote $remote');
+      }
+      return;
+  }
+}
+
+Future<void> _addRemoteFlow(BuildContext context, RepoState state) async {
+  final name = await promptText(context,
+      title: 'Add remote', hint: 'remote name (e.g. upstream)', confirm: 'Next');
+  if (name == null || name.trim().isEmpty || !context.mounted) return;
+  final url = await promptText(context,
+      title: 'Add remote "${name.trim()}"',
+      hint: 'https://… or git@…',
+      confirm: 'Add');
+  if (url != null && url.trim().isNotEmpty && context.mounted) {
+    return runRepoAction(
+        context, () => state.addRemote(name.trim(), url.trim()),
+        success: 'Added remote ${name.trim()}');
+  }
+}
+
+// --------------------------------------------------------- submodule menu ---
+Future<void> showSubmoduleContextMenu(
+  BuildContext context,
+  RepoState state,
+  GitSubmodule submodule,
+  Offset pos,
+) async {
+  final sel = await showMenu<String>(
+    context: context,
+    color: AppColors.surfaceRaised,
+    position: _at(context, pos),
+    constraints: const BoxConstraints(minWidth: 240),
+    items: [
+      _item('update', 'Update (init & checkout)'),
+      _item('sync', 'Sync URL from .gitmodules'),
+      const PopupMenuDivider(),
+      _item('copy', 'Copy path'),
+    ],
+  );
+  if (sel == null || !context.mounted) return;
+
+  switch (sel) {
+    case 'update':
+      return runRepoAction(context, state.submoduleUpdate,
+          success: 'Submodules updated');
+    case 'sync':
+      return runRepoAction(context, state.submoduleSync,
+          success: 'Submodule URLs synced');
+    case 'copy':
+      Clipboard.setData(ClipboardData(text: submodule.path));
+      return _toast(context, 'Copied submodule path');
+  }
+}
+
 // ---------------------------------------------------------- worktree menu ---
 Future<void> showWorktreeContextMenu(
   BuildContext context,

@@ -180,6 +180,8 @@ class _BranchSidebarState extends State<BranchSidebar> {
           count: entry.value.length,
           open: _isOpen('remote:${entry.key}'),
           onToggle: () => _toggleOpen('remote:${entry.key}'),
+          onSecondaryTap: (pos) =>
+              showRemoteContextMenu(context, state, entry.key, pos),
         ),
         if (_isOpen('remote:${entry.key}'))
           ..._branchTree(
@@ -248,8 +250,21 @@ class _BranchSidebarState extends State<BranchSidebar> {
                   showTagContextMenu(context, state, t, pos)),
     ]);
 
-    add(SidebarSectionId.submodules, Icons.folder_special_outlined, 'SUBMODULES',
-        null, const [_EmptyHint('No submodules')]);
+    add(
+        SidebarSectionId.submodules,
+        Icons.folder_special_outlined,
+        'SUBMODULES',
+        state.submodules.isEmpty ? null : state.submodules.length,
+        state.submodules.isEmpty
+            ? const [_EmptyHint('No submodules')]
+            : [
+                for (final s in state.submodules)
+                  _SubmoduleRow(
+                    submodule: s,
+                    onSecondaryTap: (pos) =>
+                        showSubmoduleContextMenu(context, state, s, pos),
+                  ),
+              ]);
 
     return sections;
   }
@@ -392,11 +407,13 @@ class _RemoteHeader extends StatefulWidget {
   final int count;
   final bool open;
   final VoidCallback onToggle;
+  final void Function(Offset globalPosition)? onSecondaryTap;
   const _RemoteHeader(
       {required this.name,
       required this.count,
       required this.open,
-      required this.onToggle});
+      required this.onToggle,
+      this.onSecondaryTap});
 
   @override
   State<_RemoteHeader> createState() => _RemoteHeaderState();
@@ -412,6 +429,9 @@ class _RemoteHeaderState extends State<_RemoteHeader> {
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         onTap: widget.onToggle,
+        onSecondaryTapDown: widget.onSecondaryTap == null
+            ? null
+            : (d) => widget.onSecondaryTap!(d.globalPosition),
         child: Container(
           color: _hover ? AppColors.surfaceRaised : Colors.transparent,
           padding: const EdgeInsets.fromLTRB(20, 5, 8, 5),
@@ -540,6 +560,65 @@ class _WorktreeRowState extends State<_WorktreeRow> {
                       maxLines: 1,
                       style: TextStyle(
                           fontSize: 12.5, color: AppColors.textSecondary)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SubmoduleRow extends StatefulWidget {
+  final GitSubmodule submodule;
+  final void Function(Offset globalPosition) onSecondaryTap;
+  const _SubmoduleRow({required this.submodule, required this.onSecondaryTap});
+
+  @override
+  State<_SubmoduleRow> createState() => _SubmoduleRowState();
+}
+
+class _SubmoduleRowState extends State<_SubmoduleRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.submodule;
+    final name = s.path.split('/').last;
+    final color = s.uninitialized
+        ? AppColors.textMuted
+        : s.modified
+            ? AppColors.amber
+            : AppColors.textSecondary;
+    final status = s.uninitialized
+        ? 'not initialized'
+        : s.modified
+            ? 'modified'
+            : (s.describe.isNotEmpty ? s.describe : s.sha.substring(0, 7));
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onSecondaryTapDown: (d) => widget.onSecondaryTap(d.globalPosition),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          decoration: BoxDecoration(
+            color: _hover ? AppColors.surfaceRaised : Colors.transparent,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          padding: const EdgeInsets.only(left: 22, right: 8, top: 5, bottom: 5),
+          child: Row(
+            children: [
+              Icon(Icons.folder_special_outlined, size: 14, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Tooltip(
+                  message: '${s.path}\n$status',
+                  child: Text('$name  ·  $status',
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: TextStyle(fontSize: 12.5, color: color)),
                 ),
               ),
             ],

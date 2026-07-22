@@ -368,7 +368,7 @@ class _CodeScrollViewState extends State<_CodeScrollView> {
   }
 }
 
-class _HunkWidget extends StatelessWidget {
+class _HunkWidget extends StatefulWidget {
   final FileDiff diff;
   final DiffHunk hunk;
   final RepoState state;
@@ -381,11 +381,35 @@ class _HunkWidget extends StatelessWidget {
   });
 
   @override
+  State<_HunkWidget> createState() => _HunkWidgetState();
+}
+
+class _HunkWidgetState extends State<_HunkWidget> {
+  /// Indices (into hunk.lines) the user has selected for line-level staging.
+  final Set<int> _selected = {};
+
+  void _toggle(int i) => setState(() {
+        _selected.contains(i) ? _selected.remove(i) : _selected.add(i);
+      });
+
+  bool _selectable(DiffLine l) =>
+      l.type == DiffLineType.addition || l.type == DiffLineType.deletion;
+
+  Future<void> _act(Future<void> Function() action, String msg) async {
+    await runRepoAction(context, action, success: msg);
+    if (mounted) setState(_selected.clear);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final state = widget.state;
+    final diff = widget.diff;
+    final hunk = widget.hunk;
     final canStageHunks = !state.openFileIsHistorical &&
-        file.type != ChangeType.untracked &&
+        widget.file.type != ChangeType.untracked &&
         hunk.rawText.isNotEmpty;
     final highlights = _hunkHighlights(hunk.lines);
+    final hasSel = _selected.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -404,7 +428,40 @@ class _HunkWidget extends StatelessWidget {
               ),
               if (canStageHunks) ...[
                 const SizedBox(width: 12),
-                if (!state.viewStaged) ...[
+                if (hasSel) ...[
+                  // Line-level actions (act on the selected lines only).
+                  _HunkBtn(
+                    label: '${!state.viewStaged ? "Stage" : "Unstage"} '
+                        '${_selected.length} line(s)',
+                    icon: !state.viewStaged ? Icons.add : Icons.remove,
+                    color:
+                        !state.viewStaged ? AppColors.green : AppColors.amber,
+                    onTap: () => _act(
+                        () => !state.viewStaged
+                            ? state.stageLines(diff, hunk, _selected)
+                            : state.unstageLines(diff, hunk, _selected),
+                        '${!state.viewStaged ? "Staged" : "Unstaged"} '
+                            '${_selected.length} line(s)'),
+                  ),
+                  if (!state.viewStaged) ...[
+                    const SizedBox(width: 6),
+                    _HunkBtn(
+                      label: 'Discard ${_selected.length} line(s)',
+                      icon: Icons.undo,
+                      color: AppColors.red,
+                      onTap: () => _act(
+                          () => state.discardLines(diff, hunk, _selected),
+                          'Discarded ${_selected.length} line(s)'),
+                    ),
+                  ],
+                  const SizedBox(width: 6),
+                  _HunkBtn(
+                    label: 'Clear',
+                    icon: Icons.close,
+                    color: AppColors.textMuted,
+                    onTap: () => setState(_selected.clear),
+                  ),
+                ] else if (!state.viewStaged) ...[
                   _HunkBtn(
                     label: 'Discard Hunk',
                     icon: Icons.undo,
@@ -436,7 +493,14 @@ class _HunkWidget extends StatelessWidget {
           ),
         ),
         for (var i = 0; i < hunk.lines.length; i++)
-          _DiffLineRow(line: hunk.lines[i], highlight: highlights[i]),
+          _DiffLineRow(
+            line: hunk.lines[i],
+            highlight: highlights[i],
+            selected: _selected.contains(i),
+            onToggle: canStageHunks && _selectable(hunk.lines[i])
+                ? () => _toggle(i)
+                : null,
+          ),
       ],
     );
   }
@@ -447,7 +511,18 @@ class _DiffLineRow extends StatelessWidget {
 
   /// The changed character range within [line], if any (word-level diff).
   final ({int s, int e})? highlight;
-  const _DiffLineRow({required this.line, this.highlight});
+
+  /// Whether this line is picked for line-level staging.
+  final bool selected;
+
+  /// Toggles line-level selection (null when the line isn't selectable).
+  final VoidCallback? onToggle;
+  const _DiffLineRow({
+    required this.line,
+    this.highlight,
+    this.selected = false,
+    this.onToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -488,29 +563,43 @@ class _DiffLineRow extends StatelessWidget {
         ),
       );
     }
+    // Clicking the (non-selectable) gutter toggles line-level selection.
+    final gutter = SelectionContainer.disabled(
+      child: MouseRegion(
+        cursor: onToggle != null
+            ? SystemMouseCursors.click
+            : MouseCursor.defer,
+        child: GestureDetector(
+          onTap: onToggle,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 3,
+                child: selected
+                    ? Container(color: AppColors.accent)
+                    : const SizedBox.shrink(),
+              ),
+              _num(line.oldNo),
+              _num(line.newNo),
+              SizedBox(
+                width: 18,
+                child: Text(sign,
+                    textAlign: TextAlign.center,
+                    style: _mono.copyWith(color: signColor)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
     return Container(
-      color: bg,
+      color: selected ? AppColors.accent.withValues(alpha: 0.14) : bg,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Line numbers and the +/- sign are non-selectable so copying a
-          // selection yields just the code text.
-          SelectionContainer.disabled(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _num(line.oldNo),
-                _num(line.newNo),
-                SizedBox(
-                  width: 18,
-                  child: Text(sign,
-                      textAlign: TextAlign.center,
-                      style: _mono.copyWith(color: signColor)),
-                ),
-              ],
-            ),
-          ),
+          gutter,
           Padding(
             padding: const EdgeInsets.only(right: 24),
             child: _codeText(

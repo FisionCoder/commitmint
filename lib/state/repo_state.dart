@@ -618,6 +618,33 @@ class RepoState extends ChangeNotifier {
     await _afterMutation();
   }
 
+  /// Stages only the [selected] lines of [hunk] (indices into hunk.lines).
+  Future<void> stageLines(
+      FileDiff diff, DiffHunk hunk, Set<int> selected) async {
+    final patch = diff.patchForLines(hunk, selected);
+    if (patch == null) return;
+    await git.applyPatch(patch, cached: true);
+    await _afterMutation();
+  }
+
+  /// Unstages only the [selected] lines of [hunk] (from the staged diff).
+  Future<void> unstageLines(
+      FileDiff diff, DiffHunk hunk, Set<int> selected) async {
+    final patch = diff.patchForLines(hunk, selected);
+    if (patch == null) return;
+    await git.applyPatch(patch, cached: true, reverse: true);
+    await _afterMutation();
+  }
+
+  /// Discards only the [selected] lines of [hunk] from the working tree.
+  Future<void> discardLines(
+      FileDiff diff, DiffHunk hunk, Set<int> selected) async {
+    final patch = diff.patchForLines(hunk, selected);
+    if (patch == null) return;
+    await git.applyPatch(patch, reverse: true);
+    await _afterMutation();
+  }
+
   Future<void> saveOpenFile(String content) async {
     final f = openFile;
     if (f == null) return;

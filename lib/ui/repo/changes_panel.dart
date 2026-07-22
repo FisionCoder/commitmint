@@ -1054,6 +1054,30 @@ class _CommitDetailsState extends State<_CommitDetails> {
               _detail(Icons.schedule, wordFmt.format(c.date), null),
               const SizedBox(height: 6),
               _detail(Icons.tag, c.shortHash, c.isMerge ? 'merge commit' : null),
+              FutureBuilder<String>(
+                future: state.signatureStatus(c.hash),
+                builder: (context, snap) {
+                  final st = snap.data;
+                  if (st == null || st == 'N') return const SizedBox.shrink();
+                  final (label, color, icon) = switch (st) {
+                    'G' => ('Verified signature', AppColors.green,
+                        Icons.verified_user),
+                    'U' => ('Signed — unknown validity', AppColors.amber,
+                        Icons.gpp_maybe),
+                    'B' =>
+                      ('Bad signature', AppColors.red, Icons.gpp_bad_outlined),
+                    _ => ('Signed', AppColors.textMuted, Icons.lock_outline),
+                  };
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(children: [
+                      Icon(icon, size: 13, color: color),
+                      const SizedBox(width: 8),
+                      Text(label, style: TextStyle(fontSize: 12, color: color)),
+                    ]),
+                  );
+                },
+              ),
             ],
           ),
         ),

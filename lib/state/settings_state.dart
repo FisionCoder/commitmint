@@ -127,6 +127,12 @@ class SettingsState extends ChangeNotifier {
   String sshPublicKeyPath = '';
   bool useGitCredentialManager = true;
 
+  // ----- Commit signing (git-backed: commit.gpgsign / user.signingkey /
+  // gpg.format) --------------------------------------------------------------
+  bool signCommits = false;
+  String signingKey = '';
+  bool signWithSsh = false; // false = OpenPGP (default), true = SSH
+
   // ----- In-App Terminal ---------------------------------------------------
   String terminalFont = 'Consolas';
   double terminalFontSize = 13;
@@ -190,6 +196,10 @@ class SettingsState extends ChangeNotifier {
     if (defaultBranchName.isEmpty) defaultBranchName = cfg.defaultBranch;
     autoCrlf = cfg.autoCrlf;
     longPaths = cfg.longPaths;
+    // Signing config is read straight from git (not persisted to prefs).
+    signCommits = (await _git.get('commit.gpgsign'))?.toLowerCase() == 'true';
+    signingKey = await _git.get('user.signingkey') ?? '';
+    signWithSsh = (await _git.get('gpg.format'))?.toLowerCase() == 'ssh';
     _loaded = true;
     notifyListeners();
   }
@@ -320,6 +330,14 @@ class SettingsState extends ChangeNotifier {
     await _git.set('init.defaultBranch', defaultBranchName);
     await _git.set('core.autocrlf', autoCrlf ? 'true' : 'false');
     await _git.set('core.longpaths', longPaths ? 'true' : 'false');
+  }
+
+  /// Writes the commit-signing settings to the global git config. Enabling
+  /// requires a signing key; the format selects OpenPGP (GPG) vs SSH.
+  Future<void> applySigningConfig() async {
+    await _git.set('commit.gpgsign', signCommits ? 'true' : 'false');
+    await _git.set('user.signingkey', signingKey);
+    await _git.set('gpg.format', signWithSsh ? 'ssh' : 'openpgp');
   }
 
   Future<bool> forgetCredentials() => _git.forgetCredentials();

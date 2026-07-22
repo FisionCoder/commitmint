@@ -43,6 +43,63 @@ class FileDiff {
     if (!hunk.rawText.endsWith('\n')) buffer.write('\n');
     return buffer.toString();
   }
+
+  /// Builds a patch containing only the [selected] changed lines of [hunk]
+  /// (indices into `hunk.lines`), for line-level staging. Unselected additions
+  /// are dropped and unselected deletions become context, so the patch is a
+  /// self-consistent hunk. Returns null when nothing changed is selected.
+  String? patchForLines(DiffHunk hunk, Set<int> selected) {
+    final body = <String>[];
+    var oldCount = 0;
+    var newCount = 0;
+    var kept = 0;
+    for (var i = 0; i < hunk.lines.length; i++) {
+      final l = hunk.lines[i];
+      switch (l.type) {
+        case DiffLineType.context:
+          body.add(' ${l.text}');
+          oldCount++;
+          newCount++;
+          break;
+        case DiffLineType.addition:
+          if (selected.contains(i)) {
+            body.add('+${l.text}');
+            newCount++;
+            kept++;
+          }
+          break;
+        case DiffLineType.deletion:
+          if (selected.contains(i)) {
+            body.add('-${l.text}');
+            oldCount++;
+            kept++;
+          } else {
+            // Not removing this line → it stays, as context on both sides.
+            body.add(' ${l.text}');
+            oldCount++;
+            newCount++;
+          }
+          break;
+        case DiffLineType.meta:
+          body.add('\\ ${l.text}');
+          break;
+      }
+    }
+    if (kept == 0) return null;
+    final m =
+        RegExp(r'@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@').firstMatch(hunk.header);
+    final oldStart = m != null ? m.group(1) : '1';
+    final newStart = m != null ? m.group(2) : '1';
+    final buffer = StringBuffer();
+    for (final h in headerLines) {
+      buffer.writeln(h);
+    }
+    buffer.writeln('@@ -$oldStart,$oldCount +$newStart,$newCount @@');
+    for (final b in body) {
+      buffer.writeln(b);
+    }
+    return buffer.toString();
+  }
 }
 
 /// Parses the output of `git diff --no-color` for a single file.
@@ -83,6 +140,14 @@ class DiffParser {
         final l = lines[i];
         // Stop if a new file diff begins (multi-file safety).
         if (l.startsWith('diff --git')) break;
+        // Skip a truly-empty line (the trailing artifact from split('\n')):
+        // real diff lines always carry a ' ', '+', '-' or '\' prefix, so a
+        // genuine blank context line is ' ', never ''. Materializing '' as a
+        // context line corrupts line-level patch reconstruction.
+        if (l.isEmpty) {
+          i++;
+          continue;
+        }
         raw0.add(l);
         if (l.startsWith('+')) {
           body.add(DiffLine(DiffLineType.addition, l.substring(1), null, newNo));

@@ -247,6 +247,38 @@ class GeneralPage extends StatelessWidget {
               }),
         ),
         SettingRow(
+          label: 'Sign commits',
+          hint: 'Signs new commits (commit.gpgsign). Requires a signing key '
+              'and a configured GPG or SSH signer.',
+          child: CheckControl(
+              value: s.signCommits,
+              onChanged: (v) {
+                s.update(() => s.signCommits = v);
+                s.applySigningConfig();
+              }),
+        ),
+        SettingRow(
+          label: 'Signing key',
+          hint: 'GPG key id (user.signingkey), or the path to an SSH public '
+              'key when using SSH signing.',
+          child: TextFieldControl(
+            value: s.signingKey,
+            hintText: 'e.g. 3AB1C… or ~/.ssh/id_ed25519.pub',
+            onChanged: (v) => s.update(() => s.signingKey = v),
+            onSubmit: s.applySigningConfig,
+          ),
+        ),
+        SettingRow(
+          label: 'Use SSH signing',
+          hint: 'Sign with an SSH key (gpg.format=ssh) instead of GPG/OpenPGP.',
+          child: CheckControl(
+              value: s.signWithSsh,
+              onChanged: (v) {
+                s.update(() => s.signWithSsh = v);
+                s.applySigningConfig();
+              }),
+        ),
+        SettingRow(
           label: 'Forget all Usernames and Passwords',
           hint: 'Clears stored credentials from the OS credential manager.',
           child: OutlinedButtonControl(

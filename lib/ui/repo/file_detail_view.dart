@@ -96,7 +96,7 @@ class _Header extends StatelessWidget {
           Text('UTF-8',
               style: TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
           const SizedBox(width: 10),
-          if (!state.openFileIsHistorical && !file.staged)
+          if (!state.openFileReadOnly && !file.staged)
             _OutlineBtn(
               label: 'Stage File',
               color: AppColors.green,
@@ -122,8 +122,9 @@ class _SubToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<RepoState>();
-    // A file viewed as of a commit is read-only: no edit/stage/unstaged toggle.
-    final historical = state.openFileIsHistorical;
+    // A file viewed as of a commit or in compare mode is read-only: no
+    // edit/stage/unstaged toggle.
+    final historical = state.openFileReadOnly;
 
     final edit = _OutlineBtn(
       label: 'Edit This File',
@@ -405,7 +406,7 @@ class _HunkWidgetState extends State<_HunkWidget> {
     final state = widget.state;
     final diff = widget.diff;
     final hunk = widget.hunk;
-    final canStageHunks = !state.openFileIsHistorical &&
+    final canStageHunks = !state.openFileReadOnly &&
         widget.file.type != ChangeType.untracked &&
         hunk.rawText.isNotEmpty;
     final highlights = _hunkHighlights(hunk.lines);

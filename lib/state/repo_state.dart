@@ -328,9 +328,18 @@ class RepoState extends ChangeNotifier {
   String? openFileCommit;
   bool get openFileIsHistorical => openFileCommit != null;
 
+  /// The open file can't be edited/staged (viewing a commit's version, or a
+  /// compare-against-working diff).
+  bool get openFileReadOnly => openFileCommit != null || _fileIsCompare;
+
   FileViewMode fileViewMode = FileViewMode.diff;
   FileAux fileAux = FileAux.none;
   bool diffSplit = false; // side-by-side vs unified diff
+
+  /// When non-null, the details panel compares this commit against the working
+  /// tree, and opened files show `git diff <compareBase> -- path`.
+  String? compareBase;
+  bool _fileIsCompare = false;
   bool viewStaged = false; // diff against the index (staged) vs working tree
   bool editing = false;
   bool get isFileOpen => openFile != null;
@@ -511,6 +520,7 @@ class RepoState extends ChangeNotifier {
   void openFileDetail(FileChange f) {
     openFile = f;
     openFileCommit = null;
+    _fileIsCompare = false;
     viewStaged = f.staged;
     fileViewMode = FileViewMode.diff;
     fileAux = FileAux.none;
@@ -522,6 +532,39 @@ class RepoState extends ChangeNotifier {
   void openCommitFile(String commitHash, FileChange f) {
     openFile = f;
     openFileCommit = commitHash;
+    _fileIsCompare = false;
+    fileViewMode = FileViewMode.diff;
+    fileAux = FileAux.none;
+    editing = false;
+    notifyListeners();
+  }
+
+  // -------------------------------------------------------------- compare ---
+  /// Compares [commit] against the working directory: the details panel lists
+  /// the differing files and opened files diff base→working.
+  void startCompareAgainstWorking(GitCommit commit) {
+    compareBase = commit.hash;
+    selectCommit(commit);
+    openFile = null;
+    notifyListeners();
+  }
+
+  void endCompare() {
+    final wasCompareFile = _fileIsCompare;
+    compareBase = null;
+    _fileIsCompare = false;
+    if (wasCompareFile) openFile = null; // leave the compare diff view
+    notifyListeners();
+  }
+
+  Future<List<FileChange>> loadCompareFiles() =>
+      compareBase == null ? Future.value(const []) : git.compareFiles(compareBase!);
+
+  /// Opens a file's compare diff (base→working) in the detail view.
+  void openCompareFile(FileChange f) {
+    openFile = f;
+    openFileCommit = null;
+    _fileIsCompare = true;
     fileViewMode = FileViewMode.diff;
     fileAux = FileAux.none;
     editing = false;
@@ -581,6 +624,10 @@ class RepoState extends ChangeNotifier {
   Future<FileDiff> loadOpenFileDiff() async {
     final f = openFile;
     if (f == null) return const FileDiff(headerLines: [], hunks: [], isEmpty: true);
+    // A file opened in compare mode diffs the base commit vs. the working tree.
+    if (_fileIsCompare && compareBase != null) {
+      return DiffParser.parse(await git.compareFileDiff(compareBase!, f.path));
+    }
     // A file opened from a commit shows that commit's diff for the file.
     if (openFileCommit != null) {
       final raw = await git.commitFileDiff(openFileCommit!, f.path);

@@ -975,8 +975,9 @@ class _CommitDetailsState extends State<_CommitDetails> {
             style: TextStyle(color: AppColors.textMuted)),
       );
     }
-    final state = context.read<RepoState>();
+    final state = context.watch<RepoState>();
     final settings = context.watch<SettingsState>();
+    final comparing = state.compareBase == c.hash;
     DateFormat wordFmt;
     try {
       wordFmt = DateFormat(settings.dateWordFormat, settings.effectiveLocale);
@@ -1082,8 +1083,33 @@ class _CommitDetailsState extends State<_CommitDetails> {
           ),
         ),
         const Divider(height: 1),
+        if (comparing)
+          Container(
+            color: AppColors.accent.withValues(alpha: 0.10),
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+            child: Row(
+              children: [
+                Icon(Icons.compare_arrows, size: 15, color: AppColors.accent),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Comparing ${c.shortHash} ↔ working directory',
+                      style: TextStyle(
+                          fontSize: 12.5, color: AppColors.textPrimary)),
+                ),
+                TextButton(
+                  onPressed: state.endCompare,
+                  style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(0, 28)),
+                  child: const Text('Exit', style: TextStyle(fontSize: 12)),
+                ),
+              ],
+            ),
+          ),
         FutureBuilder<List<FileChange>>(
-          future: state.git.commitFiles(c.hash),
+          future: comparing
+              ? state.loadCompareFiles()
+              : state.git.commitFiles(c.hash),
           builder: (context, snap) {
             if (!snap.hasData) {
               return const Padding(
@@ -1094,7 +1120,17 @@ class _CommitDetailsState extends State<_CommitDetails> {
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2))));
             }
-            return _CommitFiles(files: snap.data!, commitHash: c.hash);
+            if (comparing && snap.data!.isEmpty) {
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text('No differences from the working directory.',
+                    style: TextStyle(fontSize: 13, color: AppColors.textMuted)),
+              );
+            }
+            return _CommitFiles(
+                files: snap.data!,
+                commitHash: c.hash,
+                compare: comparing);
           },
         ),
       ],
@@ -1259,7 +1295,12 @@ Color _changeColor(ChangeType t) {
 class _CommitFiles extends StatefulWidget {
   final List<FileChange> files;
   final String commitHash;
-  const _CommitFiles({required this.files, required this.commitHash});
+
+  /// When true, files open a base→working comparison instead of the commit's
+  /// own diff.
+  final bool compare;
+  const _CommitFiles(
+      {required this.files, required this.commitHash, this.compare = false});
 
   @override
   State<_CommitFiles> createState() => _CommitFilesState();
@@ -1349,7 +1390,10 @@ class _CommitFilesState extends State<_CommitFiles> {
     return [
       for (final f in sorted)
         _CommitFileRow(
-            file: f, label: f.path, commitHash: widget.commitHash)
+            file: f,
+            label: f.path,
+            commitHash: widget.commitHash,
+            compare: widget.compare)
     ];
   }
 
@@ -1424,6 +1468,7 @@ class _CommitFilesState extends State<_CommitFiles> {
           file: f,
           label: f.fileName,
           commitHash: widget.commitHash,
+          compare: widget.compare,
           indent: depth * 16.0));
     }
     return out;
@@ -1469,11 +1514,13 @@ class _CommitFileRow extends StatefulWidget {
   final FileChange file;
   final String label;
   final String commitHash;
+  final bool compare;
   final double indent;
   const _CommitFileRow(
       {required this.file,
       required this.label,
       required this.commitHash,
+      this.compare = false,
       this.indent = 0});
 
   @override
@@ -1487,16 +1534,20 @@ class _CommitFileRowState extends State<_CommitFileRow> {
   Widget build(BuildContext context) {
     final state = context.watch<RepoState>();
     final color = _changeColor(widget.file.type);
-    final isOpen = state.openFileIsHistorical &&
-        state.openFileCommit == widget.commitHash &&
-        state.openFile?.path == widget.file.path;
+    final isOpen = widget.compare
+        ? (state.compareBase != null &&
+            state.openFile?.path == widget.file.path)
+        : (state.openFileIsHistorical &&
+            state.openFileCommit == widget.commitHash &&
+            state.openFile?.path == widget.file.path);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
-        onTap: () =>
-            state.openCommitFile(widget.commitHash, widget.file),
+        onTap: () => widget.compare
+            ? state.openCompareFile(widget.file)
+            : state.openCommitFile(widget.commitHash, widget.file),
         child: Container(
           color: isOpen
               ? AppColors.selectionRow

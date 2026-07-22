@@ -581,6 +581,30 @@ class GitService {
     return out;
   }
 
+  /// Files that differ between [base] (a commit) and the working tree
+  /// (`git diff --name-status <base>`), for "compare against working directory".
+  Future<List<FileChange>> compareFiles(String base) async {
+    final r =
+        await _run(['diff', '--name-status', '-M', '--no-color', base]);
+    if (r.exitCode != 0) return [];
+    final out = <FileChange>[];
+    for (final line in (r.stdout as String).split('\n')) {
+      if (line.trim().isEmpty) continue;
+      final parts = line.split('\t');
+      if (parts.length < 2) continue;
+      final code = parts[0];
+      final path = _unquote(parts.last);
+      out.add(FileChange(path: path, type: _mapType(code[0]), staged: false));
+    }
+    return out;
+  }
+
+  /// Unified diff of a single [path] between [base] and the working tree.
+  Future<String> compareFileDiff(String base, String path) async {
+    final r = await _run(['diff', '--no-color', '-M', base, '--', path]);
+    return r.stdout as String;
+  }
+
   /// Returns a unified diff for a single file (staged or working tree).
   Future<String> diff(String path, {required bool staged}) =>
       rawFileDiff(path, staged: staged);

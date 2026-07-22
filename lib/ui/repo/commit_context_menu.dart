@@ -504,8 +504,9 @@ Future<void> _dispatch(BuildContext context, RepoState state,
       }
       return;
     case 'compare':
-      state.selectCommit(commit);
-      return _toast(context, 'Showing commit details for ${commit.shortHash}');
+      state.startCompareAgainstWorking(commit);
+      return _toast(
+          context, 'Comparing ${commit.shortHash} against working directory');
   }
 }
 

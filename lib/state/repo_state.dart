@@ -38,6 +38,7 @@ class RepoState extends ChangeNotifier {
   List<GitRef> remoteBranches = [];
   List<GitRef> tags = [];
   List<GitRef> stashes = [];
+  List<GitWorktree> worktrees = [];
   String currentBranch = '';
 
   /// Hash of the commit HEAD points at (the current branch tip). The graph pins
@@ -296,6 +297,7 @@ class RepoState extends ChangeNotifier {
       staged = changes.where((c) => c.staged).toList();
       unstaged = changes.where((c) => !c.staged).toList();
       operation = await git.currentOperation();
+      worktrees = await git.worktreeList();
 
       _recomputeGraph();
       loading = false;
@@ -669,6 +671,14 @@ class RepoState extends ChangeNotifier {
   Future<void> createBranch(String name) =>
       _runAction(() => git.createBranch(name));
   Future<void> stashPush() => _runAction(() => git.stashPush());
+  Future<void> stashPushWith(
+          {String? message,
+          bool includeUntracked = false,
+          bool keepIndex = false}) =>
+      _runAction(() => git.stashPushWith(
+          message: message,
+          includeUntracked: includeUntracked,
+          keepIndex: keepIndex));
   Future<void> stashPop() => _runAction(() => git.stashPop());
 
   // ---- commit context-menu operations ----
@@ -710,10 +720,23 @@ class RepoState extends ChangeNotifier {
       _runAction(() => git.createTag(name, sha));
   Future<void> createAnnotatedTag(String name, String message, String sha) =>
       _runAction(() => git.createAnnotatedTag(name, message, sha));
+  Future<void> deleteTag(String name) =>
+      _runAction(() => git.deleteTag(name));
+  Future<void> pushTag(String name, {String remote = 'origin'}) =>
+      _runAction(() async =>
+          git.pushTag(remote, name, authHeader: await _remoteAuthHeader()));
+  Future<void> deleteRemoteTag(String name, {String remote = 'origin'}) =>
+      _runAction(() async => git.deleteRemoteTag(remote, name,
+          authHeader: await _remoteAuthHeader()));
   Future<void> applyPatchFile(String path) =>
       _runAction(() => git.applyPatchFile(path));
   Future<void> worktreeAdd(String path, String ref) =>
       _runAction(() => git.worktreeAdd(path, ref));
+  Future<void> worktreeRemove(String path, {bool force = false}) =>
+      _runAction(() => git.worktreeRemove(path, force: force));
+  Future<void> worktreePrune() => _runAction(() => git.worktreePrune());
+  Future<List<String>> cleanPreview() => git.cleanPreview();
+  Future<void> cleanUntracked() => _runAction(() => git.cleanUntracked());
   Future<void> moveCommitDown(String sha) =>
       _runAction(() => git.moveCommitDown(sha, currentBranch));
 

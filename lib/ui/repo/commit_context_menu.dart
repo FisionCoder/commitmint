@@ -103,6 +103,8 @@ List<Widget> buildCommitMenuChildren(
     _leaf('Cherry pick commit', () => handle('cherry')),
     _leaf('Rebase $branch onto this commit', () => handle('rebaseOnto')),
     _resetSubmenu(branch, handle),
+    _leaf('Edit commit message', () => handle('editMessage')),
+    _leaf('Move commit down', () => handle('moveDown')),
     _leaf('Revert commit', () => handle('revert')),
     _divider,
     _leaf('Copy commit sha', () => handle('copySha')),
@@ -341,19 +343,18 @@ Future<void> _dispatch(BuildContext context, RepoState state,
       }
       return;
     case 'editMessage':
-      if (!isHead) {
-        return _toast(context,
-            'Only the latest commit (HEAD) can be edited in this build.');
-      }
+      // Works for any commit: amends HEAD, otherwise rewords in place by
+      // rebuilding the branch (pauses on conflict via the usual banner).
       final current = await state.git.commitMessage(sha);
       if (!context.mounted) return;
       final msg = await promptText(context,
           title: 'Edit commit message',
           hint: 'commit message',
           initial: current,
-          confirm: 'Amend');
+          confirm: isHead ? 'Amend' : 'Reword');
       if (msg != null && msg.trim().isNotEmpty && context.mounted) {
-        return runRepoAction(context, () => state.amendMessage(msg.trim()),
+        return runRepoAction(
+            context, () => state.editCommitMessage(sha, msg.trim(), ''),
             success: 'Commit message updated');
       }
       return;

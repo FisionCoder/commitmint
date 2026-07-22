@@ -46,6 +46,26 @@ class GitRuntimeConfig {
   }
 }
 
+/// A checked-out worktree of the repository (`git worktree list`).
+class GitWorktree {
+  final String path;
+
+  /// Short branch name, or null when detached/bare.
+  final String? branch;
+  final String sha;
+  final bool isMain;
+  final bool bare;
+  final bool detached;
+  const GitWorktree({
+    required this.path,
+    required this.branch,
+    required this.sha,
+    required this.isMain,
+    required this.bare,
+    required this.detached,
+  });
+}
+
 /// A multi-step git operation that can pause on conflicts and be
 /// continued/aborted.
 enum GitOperation { none, merge, rebase, cherryPick, revert }
@@ -618,6 +638,18 @@ class GitService {
   Future<void> createAnnotatedTag(String name, String message, String sha) =>
       _runOrThrow(['tag', '-a', name, '-m', message, sha]);
 
+  Future<void> deleteTag(String name) => _runOrThrow(['tag', '-d', name]);
+
+  Future<void> pushTag(String remote, String name, {String? authHeader}) =>
+      _runOrThrow([..._netArgs(authHeader), 'push', remote, 'refs/tags/$name'],
+          env: _netEnv(authHeader));
+
+  Future<void> deleteRemoteTag(String remote, String name,
+          {String? authHeader}) =>
+      _runOrThrow(
+          [..._netArgs(authHeader), 'push', remote, '--delete', 'refs/tags/$name'],
+          env: _netEnv(authHeader));
+
   /// Writes a `0001-*.patch` for [sha] into the repo root; returns its path.
   Future<String> formatPatch(String sha) async {
     final out = await _runOrThrow(['format-patch', '-1', sha, '-o', '.']);
@@ -755,9 +787,91 @@ class GitService {
     await _runOrThrow(['stash', 'store', '-m', message, sha]);
   }
 
+  /// Stashes working changes with options. [includeUntracked] also stashes
+  /// untracked files; [keepIndex] leaves staged changes in the index.
+  Future<void> stashPushWith(
+      {String? message,
+      bool includeUntracked = false,
+      bool keepIndex = false}) {
+    final args = ['stash', 'push'];
+    if (keepIndex) args.add('--keep-index');
+    if (includeUntracked) args.add('--include-untracked');
+    final m = message?.trim() ?? '';
+    if (m.isNotEmpty) args.addAll(['-m', m]);
+    return _runOrThrow(args);
+  }
+
+  /// Untracked files/dirs that `clean -fd` would remove (dry run).
+  Future<List<String>> cleanPreview() async {
+    final r = await _run(['clean', '-fdn']);
+    if (r.exitCode != 0) return const [];
+    return (r.stdout as String)
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.startsWith('Would remove '))
+        .map((l) => l.substring('Would remove '.length))
+        .toList();
+  }
+
+  /// Removes untracked files and directories (`git clean -fd`).
+  Future<void> cleanUntracked() => _runOrThrow(['clean', '-fd']);
+
   /// Adds a new worktree at [path] checked out to [ref] (branch name or sha).
   Future<void> worktreeAdd(String path, String ref) =>
       _runOrThrow(['worktree', 'add', path, ref]);
+
+  /// Lists the repository's worktrees (`git worktree list --porcelain`).
+  Future<List<GitWorktree>> worktreeList() async {
+    final r = await _run(['worktree', 'list', '--porcelain']);
+    if (r.exitCode != 0) return const [];
+    final out = <GitWorktree>[];
+    String? path, sha, branch;
+    var bare = false, detached = false;
+    void flush() {
+      if (path == null) return;
+      out.add(GitWorktree(
+        path: path!,
+        branch: branch,
+        sha: sha ?? '',
+        // The first entry git reports is the main worktree.
+        isMain: out.isEmpty,
+        bare: bare,
+        detached: detached,
+      ));
+      path = sha = branch = null;
+      bare = detached = false;
+    }
+
+    for (final raw in (r.stdout as String).split('\n')) {
+      final line = raw.trimRight();
+      if (line.isEmpty) {
+        flush();
+        continue;
+      }
+      if (line.startsWith('worktree ')) {
+        path = line.substring('worktree '.length);
+      } else if (line.startsWith('HEAD ')) {
+        sha = line.substring('HEAD '.length);
+      } else if (line.startsWith('branch ')) {
+        branch = line
+            .substring('branch '.length)
+            .replaceFirst('refs/heads/', '');
+      } else if (line == 'bare') {
+        bare = true;
+      } else if (line == 'detached') {
+        detached = true;
+      }
+    }
+    flush();
+    return out;
+  }
+
+  /// Removes the worktree registered at [path].
+  Future<void> worktreeRemove(String path, {bool force = false}) =>
+      _runOrThrow(['worktree', 'remove', if (force) '--force', path]);
+
+  /// Prunes stale worktree administrative entries.
+  Future<void> worktreePrune() => _runOrThrow(['worktree', 'prune']);
 
   /// The full patch text for a commit (`git format-patch -1 --stdout`).
   Future<String> commitPatchText(String sha) async {

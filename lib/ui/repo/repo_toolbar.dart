@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../state/app_state.dart';
 import '../../state/repo_state.dart';
 import '../../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -12,6 +13,7 @@ class RepoToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<RepoState>();
+    final app = context.watch<AppState>();
 
     final leftGroup = <Widget>[
       Flexible(
@@ -19,8 +21,12 @@ class RepoToolbar extends StatelessWidget {
           label: 'repository',
           value: state.repo.name,
           icon: Icons.account_tree_outlined,
-          items: const [],
-          onSelected: (_) {},
+          // Switch between (or (re)open) any known repository.
+          items: app.repositories.map((r) => r.name).toList(),
+          onSelected: (name) {
+            final match = app.repositories.where((r) => r.name == name);
+            if (match.isNotEmpty) app.openRepo(match.first);
+          },
         ),
       ),
       const SizedBox(width: 18),
@@ -100,10 +106,7 @@ class RepoToolbar extends StatelessWidget {
       ToolbarButton(
         icon: Icons.inventory_2_outlined,
         label: 'Stash',
-        onTap: state.busy
-            ? null
-            : () => runRepoAction(context, state.stashPush,
-                success: 'Changes stashed'),
+        onTap: state.busy ? null : () => stashWithOptions(context, state),
       ),
       ToolbarButton(
         icon: Icons.unarchive_outlined,

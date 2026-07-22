@@ -382,6 +382,100 @@ Future<void> showStashContextMenu(
   }
 }
 
+// ---------------------------------------------------------- worktree menu ---
+Future<void> showWorktreeContextMenu(
+  BuildContext context,
+  RepoState state,
+  GitWorktree worktree,
+  Offset pos,
+) async {
+  final sel = await showMenu<String>(
+    context: context,
+    color: AppColors.surfaceRaised,
+    position: _at(context, pos),
+    constraints: const BoxConstraints(minWidth: 240),
+    items: [
+      _item('copy', 'Copy path'),
+      const PopupMenuDivider(),
+      _item('prune', 'Prune stale worktrees'),
+      if (!worktree.isMain)
+        _item('remove', 'Remove worktree', color: AppColors.red),
+    ],
+  );
+  if (sel == null || !context.mounted) return;
+
+  switch (sel) {
+    case 'copy':
+      Clipboard.setData(ClipboardData(text: worktree.path));
+      return _toast(context, 'Copied worktree path');
+    case 'prune':
+      return runRepoAction(context, state.worktreePrune,
+          success: 'Pruned stale worktrees');
+    case 'remove':
+      if (await _confirm(context, 'Remove worktree?',
+          'Remove the worktree at "${worktree.path}"? '
+              'The folder and its checked-out files are deleted.')) {
+        return runRepoAction(
+            context, () => state.worktreeRemove(worktree.path, force: true),
+            success: 'Worktree removed');
+      }
+      return;
+  }
+}
+
+// --------------------------------------------------------------- tag menu ---
+Future<void> showTagContextMenu(
+  BuildContext context,
+  RepoState state,
+  GitRef tag,
+  Offset pos,
+) async {
+  final name = tag.name;
+  final sel = await showMenu<String>(
+    context: context,
+    color: AppColors.surfaceRaised,
+    position: _at(context, pos),
+    constraints: const BoxConstraints(minWidth: 240),
+    items: [
+      _item('push', 'Push tag to origin'),
+      const PopupMenuDivider(),
+      _item('copy', 'Copy tag name'),
+      const PopupMenuDivider(),
+      _item('delete', 'Delete tag', color: AppColors.red),
+      _item('deleteRemote', 'Delete tag on origin', color: AppColors.red),
+      const PopupMenuDivider(),
+      _item('hide', 'Hide'),
+    ],
+  );
+  if (sel == null || !context.mounted) return;
+
+  switch (sel) {
+    case 'push':
+      return runRepoAction(context, () => state.pushTag(name),
+          success: 'Pushed tag $name to origin');
+    case 'copy':
+      Clipboard.setData(ClipboardData(text: name));
+      return _toast(context, 'Copied tag name');
+    case 'delete':
+      if (await _confirm(
+          context, 'Delete tag?', 'Delete local tag "$name"?')) {
+        return runRepoAction(context, () => state.deleteTag(name),
+            success: 'Deleted tag $name');
+      }
+      return;
+    case 'deleteRemote':
+      if (await _confirm(context, 'Delete tag on origin?',
+          'Delete the remote tag "origin/$name"?')) {
+        return runRepoAction(context, () => state.deleteRemoteTag(name),
+            success: 'Deleted origin tag $name');
+      }
+      return;
+    case 'hide':
+      state.hideRef(tag);
+      return _toast(context, 'Tag hidden');
+  }
+}
+
 // --------------------------------------------------- pull request menu ---
 Future<void> showPullRequestContextMenu(
   BuildContext context,

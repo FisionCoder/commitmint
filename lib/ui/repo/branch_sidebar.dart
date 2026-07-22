@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/git_branch.dart';
 import '../../models/pull_request.dart';
+import '../../services/git_service.dart';
 import '../../state/layout_state.dart';
 import '../../state/repo_state.dart';
 import '../../theme/app_theme.dart';
@@ -194,8 +195,21 @@ class _BranchSidebarState extends State<BranchSidebar> {
       ],
     ]);
 
-    add(SidebarSectionId.worktrees, Icons.account_tree_outlined, 'WORKTREES',
-        null, const [_EmptyHint('No worktrees')]);
+    add(
+        SidebarSectionId.worktrees,
+        Icons.account_tree_outlined,
+        'WORKTREES',
+        state.worktrees.isEmpty ? null : state.worktrees.length,
+        state.worktrees.isEmpty
+            ? const [_EmptyHint('No worktrees')]
+            : [
+                for (final w in state.worktrees)
+                  _WorktreeRow(
+                    worktree: w,
+                    onSecondaryTap: (pos) =>
+                        showWorktreeContextMenu(context, state, w, pos),
+                  ),
+              ]);
 
     add(SidebarSectionId.stashes, Icons.inventory_2_outlined, 'STASHES',
         state.stashes.length, [
@@ -227,7 +241,11 @@ class _BranchSidebarState extends State<BranchSidebar> {
     add(SidebarSectionId.tags, Icons.sell_outlined, 'TAGS', state.tags.length, [
       for (final t in state.tags)
         if (_matches(t.name) && !state.isHidden(t))
-          _BranchRow(branch: t, indent: 28),
+          _BranchRow(
+              branch: t,
+              indent: 28,
+              onSecondaryTap: (pos) =>
+                  showTagContextMenu(context, state, t, pos)),
     ]);
 
     add(SidebarSectionId.submodules, Icons.folder_special_outlined, 'SUBMODULES',
@@ -479,6 +497,59 @@ class _BranchFolderRowState extends State<_BranchFolderRow> {
 }
 
 /// A muted hint shown inside an empty sidebar section.
+class _WorktreeRow extends StatefulWidget {
+  final GitWorktree worktree;
+  final void Function(Offset globalPosition) onSecondaryTap;
+  const _WorktreeRow({required this.worktree, required this.onSecondaryTap});
+
+  @override
+  State<_WorktreeRow> createState() => _WorktreeRowState();
+}
+
+class _WorktreeRowState extends State<_WorktreeRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = widget.worktree;
+    final label = w.branch ??
+        (w.bare ? '(bare)' : w.sha.isEmpty ? '(detached)' : w.sha.substring(0, 7));
+    final subtitle = w.path.split(RegExp(r'[\\/]')).last;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onSecondaryTapDown: (d) => widget.onSecondaryTap(d.globalPosition),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          decoration: BoxDecoration(
+            color: _hover ? AppColors.surfaceRaised : Colors.transparent,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          padding: const EdgeInsets.only(left: 22, right: 8, top: 5, bottom: 5),
+          child: Row(
+            children: [
+              Icon(w.isMain ? Icons.home_outlined : Icons.account_tree_outlined,
+                  size: 14, color: AppColors.textMuted),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Tooltip(
+                  message: w.path,
+                  child: Text('$label  ·  $subtitle',
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: TextStyle(
+                          fontSize: 12.5, color: AppColors.textSecondary)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _EmptyHint extends StatelessWidget {
   final String text;
   const _EmptyHint(this.text);

@@ -151,6 +151,11 @@ class _WorkingChanges extends StatelessWidget {
               ],
             ),
           ),
+          IconAction(
+            icon: Icons.cleaning_services_outlined,
+            tooltip: 'Clean untracked files',
+            onTap: () => cleanUntrackedWithConfirm(context, state),
+          ),
           if (state.totalChanges > 0)
             IconAction(
               icon: Icons.delete_outline,
@@ -834,8 +839,7 @@ class _CommitBoxState extends State<_CommitBox> {
                     ? AppColors.textSecondary
                     : AppColors.textMuted,
                 onTap: state.totalChanges > 0 && !state.busy
-                    ? () => runRepoAction(context, state.stashPush,
-                        success: 'Changes stashed')
+                    ? () => stashWithOptions(context, state)
                     : null,
               ),
               IconAction(

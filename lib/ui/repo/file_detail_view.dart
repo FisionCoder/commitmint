@@ -153,6 +153,9 @@ class _SubToolbar extends StatelessWidget {
     final showSplit = state.fileAux == FileAux.none &&
         !state.editing &&
         state.fileViewMode == FileViewMode.diff;
+    final ignoreWs = _GhostBtn('Ignore whitespace',
+        () => state.setDiffIgnoreWhitespace(!state.diffIgnoreWhitespace),
+        active: state.diffIgnoreWhitespace);
     final blame = _GhostBtn('Blame',
         () => state.setFileAux(
             state.fileAux == FileAux.blame ? FileAux.none : FileAux.blame),
@@ -178,6 +181,8 @@ class _SubToolbar extends StatelessWidget {
           if (showSplit) ...[
             const SizedBox(width: 10),
             splitToggle,
+            const SizedBox(width: 4),
+            ignoreWs,
           ],
           wide ? const Spacer() : const SizedBox(width: 12),
           blame,
@@ -406,7 +411,10 @@ class _HunkWidgetState extends State<_HunkWidget> {
     final state = widget.state;
     final diff = widget.diff;
     final hunk = widget.hunk;
+    // A whitespace-ignored diff isn't a faithful patch, so staging from it is
+    // disabled while "Ignore whitespace" is on.
     final canStageHunks = !state.openFileReadOnly &&
+        !state.diffIgnoreWhitespace &&
         widget.file.type != ChangeType.untracked &&
         hunk.rawText.isNotEmpty;
     final highlights = _hunkHighlights(hunk.lines);

@@ -103,12 +103,14 @@ List<Widget> buildCommitMenuChildren(
     _divider,
     _leaf('Create branch here', () => handle('createBranch')),
     _leaf('Cherry pick commit', () => handle('cherry')),
+    _leaf('Cherry pick (leave uncommitted)', () => handle('cherryNoCommit')),
     _leaf('Rebase $branch onto this commit', () => handle('rebaseOnto')),
     _leaf('Interactive rebase from here…', () => handle('irebase')),
     _resetSubmenu(branch, handle),
     _leaf('Edit commit message', () => handle('editMessage')),
     _leaf('Move commit down', () => handle('moveDown')),
     _leaf('Revert commit', () => handle('revert')),
+    _leaf('Revert (leave uncommitted)', () => handle('revertNoCommit')),
     _divider,
     _leaf('Copy commit sha', () => handle('copySha')),
     _leaf('Copy link to this commit on remote: origin',
@@ -340,6 +342,10 @@ Future<void> _dispatch(BuildContext context, RepoState state,
     case 'cherry':
       return runRepoAction(context, () => state.cherryPick(sha),
           success: 'Cherry-picked ${commit.shortHash}');
+    case 'cherryNoCommit':
+      return runRepoAction(
+          context, () => state.cherryPick(sha, noCommit: true),
+          success: 'Cherry-picked ${commit.shortHash} (uncommitted)');
     case 'rebaseOnto':
       return runRepoAction(context, () => state.rebaseOnto(sha),
           success: 'Rebased $branch onto ${commit.shortHash}');
@@ -379,6 +385,10 @@ Future<void> _dispatch(BuildContext context, RepoState state,
     case 'revert':
       return runRepoAction(context, () => state.revertCommit(sha),
           success: 'Reverted ${commit.shortHash}');
+    case 'revertNoCommit':
+      return runRepoAction(
+          context, () => state.revertCommit(sha, noCommit: true),
+          success: 'Reverted ${commit.shortHash} (uncommitted)');
     case 'drop':
       if (await _confirm(context, 'Drop commit ${commit.shortHash}?',
           'This rewrites history by removing the commit. '

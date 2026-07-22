@@ -519,6 +519,14 @@ class _FileRowState extends State<_FileRow> {
                       runRepoAction(context, () => widget.state.unstageFile(f)),
                 )
               else ...[
+                if (f.type == ChangeType.untracked)
+                  _RowIcon(
+                    icon: Icons.block,
+                    tooltip: 'Add to .gitignore',
+                    onTap: () => runRepoAction(
+                        context, () => widget.state.addToGitignore(f.path),
+                        success: 'Added ${f.path} to .gitignore'),
+                  ),
                 _RowIcon(
                   icon: Icons.undo,
                   tooltip: 'Discard changes',
@@ -795,6 +803,25 @@ class _CommitBoxState extends State<_CommitBox> {
     super.initState();
     _summary.text = widget.state.commitSummary;
     _description.text = widget.state.commitDescription;
+    _maybeLoadTemplate();
+  }
+
+  /// Pre-fills the description from the configured commit template when the box
+  /// is empty (first open with nothing typed yet).
+  Future<void> _maybeLoadTemplate() async {
+    if (widget.state.commitSummary.trim().isNotEmpty ||
+        widget.state.commitDescription.trim().isNotEmpty) {
+      return;
+    }
+    final tmpl = await widget.state.loadCommitTemplate();
+    if (!mounted || tmpl == null || tmpl.trim().isEmpty) return;
+    // Only apply if the user hasn't started typing in the meantime.
+    if (_summary.text.isEmpty && _description.text.isEmpty) {
+      setState(() {
+        _description.text = tmpl.trimRight();
+        widget.state.commitDescription = _description.text;
+      });
+    }
   }
 
   @override
@@ -871,19 +898,17 @@ class _CommitBoxState extends State<_CommitBox> {
           const SizedBox(height: 10),
           Row(
             children: [
-              SizedBox(
-                width: 20,
-                height: 20,
-                child: Checkbox(
-                  value: state.amend,
-                  onChanged: (v) => state.setAmend(v ?? false),
-                  side: BorderSide(color: AppColors.border),
-                ),
+              _CommitToggle(
+                label: 'Amend previous commit',
+                value: state.amend,
+                onChanged: (v) => state.setAmend(v),
               ),
-              const SizedBox(width: 8),
-              Text('Amend previous commit',
-                  style: TextStyle(
-                      fontSize: 12.5, color: AppColors.textSecondary)),
+              const SizedBox(width: 16),
+              _CommitToggle(
+                label: 'Sign off',
+                value: state.signoff,
+                onChanged: (v) => setState(() => state.signoff = v),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -1231,6 +1256,43 @@ class _CommitDetailsState extends State<_CommitDetails> {
 
 /// Commit subject/description text that reveals an edit affordance on hover and
 /// enters edit mode when clicked (used in the commit details panel).
+/// A compact checkbox + label used under the commit box (Amend / Sign off).
+class _CommitToggle extends StatelessWidget {
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const _CommitToggle(
+      {required this.label, required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => onChanged(!value),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: Checkbox(
+                value: value,
+                onChanged: (v) => onChanged(v ?? false),
+                side: BorderSide(color: AppColors.border),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(label,
+                style:
+                    TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _MessageDisplay extends StatefulWidget {
   final String text;
   final TextStyle style;

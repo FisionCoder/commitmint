@@ -452,6 +452,7 @@ class RepoState extends ChangeNotifier {
   FileViewMode fileViewMode = FileViewMode.diff;
   FileAux fileAux = FileAux.none;
   bool diffSplit = false; // side-by-side vs unified diff
+  bool diffIgnoreWhitespace = false; // pass -w to diffs
 
   /// When non-null, the details panel compares this commit against the working
   /// tree, and opened files show `git diff <compareBase> -- path`.
@@ -717,6 +718,11 @@ class RepoState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setDiffIgnoreWhitespace(bool v) {
+    diffIgnoreWhitespace = v;
+    notifyListeners();
+  }
+
   Future<List<BlameLine>> loadBlame() {
     final f = openFile;
     if (f == null) return Future.value(const []);
@@ -749,14 +755,16 @@ class RepoState extends ChangeNotifier {
     }
     // A file opened from a commit shows that commit's diff for the file.
     if (openFileCommit != null) {
-      final raw = await git.commitFileDiff(openFileCommit!, f.path);
+      final raw = await git.commitFileDiff(openFileCommit!, f.path,
+          ignoreWhitespace: diffIgnoreWhitespace);
       return DiffParser.parse(raw);
     }
     if (f.type == ChangeType.untracked && !viewStaged) {
       final content = await git.readFileContent(f.path);
       return DiffParser.forNewFile(f.path, content);
     }
-    final raw = await git.rawFileDiff(f.path, staged: viewStaged);
+    final raw = await git.rawFileDiff(f.path,
+        staged: viewStaged, ignoreWhitespace: diffIgnoreWhitespace);
     return DiffParser.parse(raw);
   }
 
@@ -913,13 +921,24 @@ class RepoState extends ChangeNotifier {
     await _afterMutation();
   }
 
+  bool signoff = false;
+
   Future<void> doCommit() async {
     await git.commit(commitSummary,
-        description: commitDescription, amend: amend);
+        description: commitDescription, amend: amend, signoff: signoff);
     commitSummary = '';
     commitDescription = '';
     amend = false;
     await refreshAll();
+  }
+
+  /// The configured commit template (commit.template), or null.
+  Future<String?> loadCommitTemplate() => git.commitTemplate();
+
+  /// Adds [path] (or a pattern) to `.gitignore`.
+  Future<void> addToGitignore(String path) async {
+    await git.appendGitignore(path);
+    await _afterMutation();
   }
 
   /// Quick commit from the inline WIP row. Commits the staged files; if nothing
@@ -998,8 +1017,8 @@ class RepoState extends ChangeNotifier {
       _runAction(() => git.createBranchAt(name, sha));
   Future<void> resetTo(String sha, String mode) =>
       _runAction(() => git.resetTo(sha, mode));
-  Future<void> revertCommit(String sha) =>
-      _runAction(() => git.revertCommit(sha));
+  Future<void> revertCommit(String sha, {bool noCommit = false}) =>
+      _runAction(() => git.revertCommit(sha, noCommit: noCommit));
   Future<void> amendMessage(String message) =>
       _runAction(() => git.amendMessage(message));
 
@@ -1104,8 +1123,8 @@ class RepoState extends ChangeNotifier {
         await git.amendNoEdit();
         await git.continueOperation(GitOperation.rebase);
       });
-  Future<void> cherryPick(String sha) =>
-      _runAction(() => git.cherryPick(sha));
+  Future<void> cherryPick(String sha, {bool noCommit = false}) =>
+      _runAction(() => git.cherryPick(sha, noCommit: noCommit));
 
   // ---- stash context-menu operations ----
   Future<void> stashApply(int index) =>

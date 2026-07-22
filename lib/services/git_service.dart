@@ -631,10 +631,12 @@ class GitService {
       rawFileDiff(path, staged: staged);
 
   /// Raw unified diff for one file (`git diff [--cached] --no-color -- path`).
-  Future<String> rawFileDiff(String path, {required bool staged}) async {
+  Future<String> rawFileDiff(String path,
+      {required bool staged, bool ignoreWhitespace = false}) async {
     final args = [
       'diff',
       if (staged) '--cached',
+      if (ignoreWhitespace) '-w',
       '--no-color',
       '--',
       path,
@@ -652,9 +654,18 @@ class GitService {
 
   /// Unified diff a commit introduced for one file (`git show <hash> -- path`).
   /// Handles the root commit (shown as an addition).
-  Future<String> commitFileDiff(String hash, String path) async {
-    final r = await _run(
-        ['show', '--format=', '--no-color', '-M', hash, '--', path]);
+  Future<String> commitFileDiff(String hash, String path,
+      {bool ignoreWhitespace = false}) async {
+    final r = await _run([
+      'show',
+      '--format=',
+      '--no-color',
+      '-M',
+      if (ignoreWhitespace) '-w',
+      hash,
+      '--',
+      path,
+    ]);
     return r.stdout as String;
   }
 
@@ -726,8 +737,9 @@ class GitService {
   Future<void> resetTo(String sha, String mode) =>
       _runOrThrow(['reset', '--$mode', sha]);
 
-  Future<void> revertCommit(String sha) =>
-      _runOrThrow(['revert', '--no-edit', sha], env: _noEditorEnv);
+  Future<void> revertCommit(String sha, {bool noCommit = false}) => _runOrThrow(
+      ['revert', if (noCommit) '--no-commit' else '--no-edit', sha],
+      env: _noEditorEnv);
 
   Future<String> commitMessage(String sha) async {
     final r = await _run(['log', '-1', '--format=%B', sha]);
@@ -1083,8 +1095,9 @@ class GitService {
     } catch (_) {}
   }
 
-  Future<void> cherryPick(String sha) =>
-      _runOrThrow(['cherry-pick', sha], env: _noEditorEnv);
+  Future<void> cherryPick(String sha, {bool noCommit = false}) => _runOrThrow(
+      ['cherry-pick', if (noCommit) '-n', sha],
+      env: _noEditorEnv);
 
   // ----------------------------------------------- conflict / in-progress ---
   /// Detects a paused multi-step operation (merge/rebase/cherry-pick/revert)
@@ -1335,12 +1348,42 @@ class GitService {
   }
 
   Future<void> commit(String summary,
-      {String description = '', bool amend = false}) async {
+      {String description = '', bool amend = false, bool signoff = false}) async {
     final args = ['commit'];
     if (amend) args.add('--amend');
+    if (signoff) args.add('--signoff');
     args.addAll(['-m', summary]);
     if (description.trim().isNotEmpty) args.addAll(['-m', description]);
     await _runOrThrow(args);
+  }
+
+  /// The configured commit message template (`commit.template`), if any.
+  Future<String?> commitTemplate() async {
+    final r = await _run(['config', '--get', 'commit.template']);
+    if (r.exitCode != 0) return null;
+    var path = (r.stdout as String).trim();
+    if (path.isEmpty) return null;
+    if (path.startsWith('~')) {
+      final home = Platform.environment['USERPROFILE'] ??
+          Platform.environment['HOME'] ??
+          '';
+      path = '$home${path.substring(1)}';
+    }
+    final f = File(path.contains(RegExp(r'^[a-zA-Z]:|^[/\\]'))
+        ? path
+        : '$workingDir${Platform.pathSeparator}$path');
+    if (!await f.exists()) return null;
+    return f.readAsString();
+  }
+
+  /// Appends [pattern] to the repository's `.gitignore` (creating it if needed).
+  Future<void> appendGitignore(String pattern) async {
+    final f = File('$workingDir${Platform.pathSeparator}.gitignore');
+    final existing = await f.exists() ? await f.readAsString() : '';
+    final lines = existing.split('\n').map((l) => l.trim()).toSet();
+    if (lines.contains(pattern.trim())) return; // already ignored
+    final prefix = existing.isEmpty || existing.endsWith('\n') ? '' : '\n';
+    await f.writeAsString('$prefix${pattern.trim()}\n', mode: FileMode.append);
   }
 
   /// Suppresses interactive credential prompts (the Git Credential Manager

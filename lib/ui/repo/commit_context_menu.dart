@@ -11,6 +11,7 @@ import '../../state/repo_state.dart';
 import '../../theme/app_theme.dart';
 import '../widgets/notifier.dart';
 import 'git_links.dart';
+import 'interactive_rebase_dialog.dart';
 import 'repo_actions.dart';
 
 MenuStyle get commitMenuStyle => MenuStyle(
@@ -102,6 +103,7 @@ List<Widget> buildCommitMenuChildren(
     _leaf('Create branch here', () => handle('createBranch')),
     _leaf('Cherry pick commit', () => handle('cherry')),
     _leaf('Rebase $branch onto this commit', () => handle('rebaseOnto')),
+    _leaf('Interactive rebase from here…', () => handle('irebase')),
     _resetSubmenu(branch, handle),
     _leaf('Edit commit message', () => handle('editMessage')),
     _leaf('Move commit down', () => handle('moveDown')),
@@ -333,6 +335,14 @@ Future<void> _dispatch(BuildContext context, RepoState state,
     case 'rebaseOnto':
       return runRepoAction(context, () => state.rebaseOnto(sha),
           success: 'Rebased $branch onto ${commit.shortHash}');
+    case 'irebase':
+      final base = commit.parents.isEmpty ? null : commit.parents.first;
+      final range = await state.rebaseRange(base);
+      if (!context.mounted) return;
+      if (range.isEmpty) {
+        return _toast(context, 'Nothing to rebase from this commit.');
+      }
+      return showInteractiveRebaseDialog(context, state, base, range);
     case 'createBranch':
       final name = await promptText(context,
           title: 'Create branch here', hint: 'branch name', confirm: 'Create');

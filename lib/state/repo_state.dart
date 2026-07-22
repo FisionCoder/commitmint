@@ -802,6 +802,9 @@ class RepoState extends ChangeNotifier {
       _runAction(() => git.rebaseOnto(branch));
   Future<void> interactiveRebase(String branch) =>
       _runAction(() => git.interactiveRebase(branch));
+  Future<List<GitCommit>> rebaseRange(String? base) => git.rebaseRange(base);
+  Future<void> runInteractiveRebase(String? base, List<RebaseStep> plan) =>
+      _runAction(() => git.runInteractiveRebase(base, plan));
   Future<void> cherryPick(String sha) =>
       _runAction(() => git.cherryPick(sha));
 

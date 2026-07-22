@@ -133,6 +133,32 @@ class ReflogEntry {
   String get shortSha => sha.length >= 7 ? sha.substring(0, 7) : sha;
 }
 
+/// Per-commit action in an interactive rebase plan.
+enum RebaseAction { pick, reword, squash, fixup, drop }
+
+/// One step of an interactive rebase plan (a commit + what to do with it).
+class RebaseStep {
+  final String sha;
+  final String subject;
+  final RebaseAction action;
+
+  /// New message for a [RebaseAction.reword] step.
+  final String? newMessage;
+  const RebaseStep({
+    required this.sha,
+    required this.subject,
+    required this.action,
+    this.newMessage,
+  });
+
+  RebaseStep copyWith({RebaseAction? action, String? newMessage}) => RebaseStep(
+        sha: sha,
+        subject: subject,
+        action: action ?? this.action,
+        newMessage: newMessage ?? this.newMessage,
+      );
+}
+
 /// A multi-step git operation that can pause on conflicts and be
 /// continued/aborted.
 enum GitOperation { none, merge, rebase, cherryPick, revert }
@@ -887,6 +913,116 @@ class GitService {
   /// Interactive rebase, auto-accepting the default todo (non-interactive env).
   Future<void> interactiveRebase(String branch) =>
       _runOrThrow(['rebase', '-i', branch], env: _noEditorEnv);
+
+  /// The commits eligible for an interactive rebase: everything from [base]
+  /// (exclusive) up to HEAD, oldest first. When [base] is null the whole
+  /// history to HEAD is returned (rebasing from the root).
+  Future<List<GitCommit>> rebaseRange(String? base) async {
+    final range = base == null ? 'HEAD' : '$base..HEAD';
+    final r = await _run([
+      'log',
+      '--reverse',
+      '--pretty=format:$_commitFmt$_rs',
+      range,
+    ]);
+    if (r.exitCode != 0) return [];
+    return _parseCommitRecords(r.stdout as String);
+  }
+
+  /// Realizes an interactive-rebase [plan] (ordered oldest→newest) onto [base]
+  /// (null = root). Builds a todo of `pick`/`fixup` lines plus
+  /// `exec git commit --amend -F <file>` steps so messages are set without ever
+  /// opening an editor. Conflicts pause the rebase (operation == rebase) for
+  /// the normal conflict UI to resolve/continue/abort.
+  Future<void> runInteractiveRebase(
+      String? base, List<RebaseStep> plan) async {
+    final steps = plan.where((s) => s.action != RebaseAction.drop).toList();
+    if (steps.isEmpty) {
+      throw GitException('An interactive rebase must keep at least one commit.');
+    }
+    final tmp = await Directory.systemTemp.createTemp('cm_irebase_');
+    String unix(String p) => p.replaceAll('\\', '/');
+
+    final todo = StringBuffer();
+    var msgIndex = 0;
+
+    // Current group (a kept commit plus any squash/fixup folded into it).
+    String? groupBaseMsg;
+    var groupIsReword = false;
+    final groupSquashMsgs = <String>[];
+    var groupOpen = false;
+
+    Future<void> flush() async {
+      if (!groupOpen) return;
+      if (groupIsReword || groupSquashMsgs.isNotEmpty) {
+        final parts = <String>[
+          if ((groupBaseMsg ?? '').trim().isNotEmpty) groupBaseMsg!.trim(),
+          for (final m in groupSquashMsgs)
+            if (m.trim().isNotEmpty) m.trim(),
+        ];
+        final file = '${tmp.path}${Platform.pathSeparator}msg_${msgIndex++}.txt';
+        await File(file).writeAsString('${parts.join('\n\n')}\n');
+        todo.writeln(
+            'exec git commit --amend --allow-empty -F "${unix(file)}"');
+      }
+      groupOpen = false;
+      groupBaseMsg = null;
+      groupIsReword = false;
+      groupSquashMsgs.clear();
+    }
+
+    for (final step in steps) {
+      switch (step.action) {
+        case RebaseAction.drop:
+          break; // filtered out above
+        case RebaseAction.pick:
+          await flush();
+          todo.writeln('pick ${step.sha}');
+          groupOpen = true;
+          groupBaseMsg = await commitMessage(step.sha);
+          groupIsReword = false;
+          break;
+        case RebaseAction.reword:
+          await flush();
+          todo.writeln('pick ${step.sha}');
+          groupOpen = true;
+          groupBaseMsg = step.newMessage ?? await commitMessage(step.sha);
+          groupIsReword = true;
+          break;
+        case RebaseAction.squash:
+        case RebaseAction.fixup:
+          if (!groupOpen) {
+            // Nothing to fold into (first step) — keep it as a plain pick.
+            todo.writeln('pick ${step.sha}');
+            groupOpen = true;
+            groupBaseMsg = await commitMessage(step.sha);
+            groupIsReword = false;
+            break;
+          }
+          todo.writeln('fixup ${step.sha}');
+          if (step.action == RebaseAction.squash) {
+            groupSquashMsgs.add(await commitMessage(step.sha));
+          }
+          break;
+      }
+    }
+    await flush();
+
+    final todoPath = '${tmp.path}${Platform.pathSeparator}todo.txt';
+    await File(todoPath).writeAsString(todo.toString());
+
+    // Install our todo by overriding the sequence editor with a copy command
+    // (git's bundled shell provides `cp` on all platforms).
+    final env = {
+      ..._noEditorEnv,
+      'GIT_SEQUENCE_EDITOR': 'cp "${unix(todoPath)}"',
+    };
+    await _runOrThrow(['rebase', '-i', base ?? '--root'], env: env);
+    // Reached only when the rebase completed without pausing; safe to clean up.
+    try {
+      await tmp.delete(recursive: true);
+    } catch (_) {}
+  }
 
   Future<void> cherryPick(String sha) =>
       _runOrThrow(['cherry-pick', sha], env: _noEditorEnv);

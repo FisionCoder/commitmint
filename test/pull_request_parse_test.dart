@@ -1,7 +1,50 @@
 import 'package:commit_mint/services/integration_service.dart';
+import 'package:commit_mint/ui/repo/git_links.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  group('normalizeCi', () {
+    test('maps provider statuses', () {
+      expect(IntegrationService.normalizeCi('success'), 'success');
+      expect(IntegrationService.normalizeCi('passed'), 'success');
+      expect(IntegrationService.normalizeCi('failure'), 'failed');
+      expect(IntegrationService.normalizeCi('failed'), 'failed');
+      expect(IntegrationService.normalizeCi('running'), 'pending');
+      expect(IntegrationService.normalizeCi('pending'), 'pending');
+      expect(IntegrationService.normalizeCi('skipped'), '');
+      expect(IntegrationService.normalizeCi(null), '');
+    });
+  });
+
+  group('tokenizeIssueRefs', () {
+    test('splits out #123 references', () {
+      final t = tokenizeIssueRefs('Fix login bug #42 and #7');
+      expect(t.where((e) => e.issue != null).map((e) => e.issue).toList(),
+          [42, 7]);
+      expect(t.first.text, 'Fix login bug ');
+    });
+
+    test('no refs yields a single plain token', () {
+      final t = tokenizeIssueRefs('no refs here');
+      expect(t.length, 1);
+      expect(t.first.issue, isNull);
+    });
+
+    test('does not match a markdown heading', () {
+      final t = tokenizeIssueRefs('# Heading only');
+      expect(t.every((e) => e.issue == null), true);
+    });
+  });
+
+  group('gitIssueUrl', () {
+    test('github vs gitlab path', () {
+      expect(gitIssueUrl('https://github.com/o/r.git', 5),
+          'https://github.com/o/r/issues/5');
+      expect(gitIssueUrl('git@gitlab.com:g/p.git', 5),
+          'https://gitlab.com/g/p/-/issues/5');
+    });
+  });
+
   group('parseRemoteSlug', () {
     test('github https', () {
       final s = IntegrationService.parseRemoteSlug(

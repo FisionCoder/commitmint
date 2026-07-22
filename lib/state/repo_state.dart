@@ -188,6 +188,17 @@ class RepoState extends ChangeNotifier {
     await _fetchPullRequests();
   }
 
+  /// Approves a pull request via the connected provider, then refreshes.
+  Future<void> approvePullRequestById(int id) async {
+    final t = await pullRequestTarget();
+    if (t == null) {
+      throw Exception('No connected provider for this repository.');
+    }
+    await IntegrationService.approvePullRequest(t.inst, t.secret,
+        owner: t.owner, repo: t.repo, id: id);
+    await _fetchPullRequests();
+  }
+
   Future<void> _fetchIssues() async {
     final remote = await git.remoteUrl();
     final slug = IntegrationService.parseRemoteSlug(remote);

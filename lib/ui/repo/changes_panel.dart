@@ -1,7 +1,9 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/file_change.dart';
 import '../../models/git_commit.dart';
@@ -13,6 +15,7 @@ import '../../theme/app_theme.dart';
 import '../widgets/common.dart';
 import '../widgets/notifier.dart';
 import '../widgets/profile_avatar.dart';
+import 'git_links.dart';
 import 'repo_actions.dart';
 
 class ChangesPanel extends StatelessWidget {
@@ -1246,10 +1249,59 @@ class _MessageDisplay extends StatefulWidget {
 
 class _MessageDisplayState extends State<_MessageDisplay> {
   bool _hover = false;
+  final List<TapGestureRecognizer> _recognizers = [];
+
+  @override
+  void dispose() {
+    _disposeRecognizers();
+    super.dispose();
+  }
+
+  void _disposeRecognizers() {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  Future<void> _openIssue(int number) async {
+    final remote = await context.read<RepoState>().git.remoteUrl();
+    final url = gitIssueUrl(remote, number);
+    if (url != null) {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    }
+  }
+
+  /// Renders the message with `#123` issue references as clickable links. The
+  /// per-span recognizers take precedence over the outer edit tap.
+  Widget _linkified() {
+    _disposeRecognizers();
+    final tokens = tokenizeIssueRefs(widget.text);
+    if (tokens.length == 1 && tokens.first.issue == null) {
+      return Text(widget.text, style: widget.style);
+    }
+    return Text.rich(TextSpan(style: widget.style, children: [
+      for (final t in tokens)
+        if (t.issue == null)
+          TextSpan(text: t.text)
+        else
+          TextSpan(
+            text: t.text,
+            style: TextStyle(
+                color: AppColors.accent, fontWeight: FontWeight.w600),
+            recognizer: () {
+              final r = TapGestureRecognizer()
+                ..onTap = () => _openIssue(t.issue!);
+              _recognizers.add(r);
+              return r;
+            }(),
+          ),
+    ]));
+  }
 
   @override
   Widget build(BuildContext context) {
-    final content = Text(widget.text, style: widget.style);
+    final content = _linkified();
     if (!widget.editable) return content;
     return MouseRegion(
       cursor: SystemMouseCursors.click,

@@ -379,7 +379,21 @@ class IntegrationService {
         final login = me['login'] as String? ?? '';
         final list = await _getJsonList(
             '$base/repos/$owner/$repo/pulls?state=open&per_page=50', h);
-        return mapGitHubPRs(list, login, repo);
+        final prs = mapGitHubPRs(list, login, repo);
+        // Enrich each PR with its head commit's combined CI status.
+        final withCi = <PullRequest>[];
+        for (final pr in prs) {
+          var ci = '';
+          if (pr.headSha.isNotEmpty) {
+            try {
+              final s = await _getJson(
+                  '$base/repos/$owner/$repo/commits/${pr.headSha}/status', h);
+              ci = normalizeCi(s['state'] as String?);
+            } catch (_) {}
+          }
+          withCi.add(pr.withCi(ci));
+        }
+        return withCi;
       case ProviderType.gitlab:
       case ProviderType.gitlabSelfManaged:
         final h = {'PRIVATE-TOKEN': secret};
@@ -507,6 +521,43 @@ class IntegrationService {
     }
   }
 
+  /// Approves a pull/merge request.
+  static Future<void> approvePullRequest(
+    Integration inst,
+    String secret, {
+    required String owner,
+    required String repo,
+    required int id,
+  }) async {
+    switch (inst.provider) {
+      case ProviderType.github:
+      case ProviderType.githubEnterprise:
+        final base = _githubBase(inst.provider, inst.host);
+        await _sendJson('POST', '$base/repos/$owner/$repo/pulls/$id/reviews',
+            _githubHeaders(secret), {'event': 'APPROVE'});
+        return;
+      case ProviderType.gitlab:
+      case ProviderType.gitlabSelfManaged:
+        final proj = Uri.encodeComponent('$owner/$repo');
+        await _sendJson(
+            'POST',
+            'https://${inst.host}/api/v4/projects/$proj/merge_requests/$id/approve',
+            {'PRIVATE-TOKEN': secret},
+            {});
+        return;
+      case ProviderType.bitbucket:
+        await _sendJson(
+            'POST',
+            'https://api.bitbucket.org/2.0/repositories/$owner/$repo/pullrequests/$id/approve',
+            _basic(inst.principal ?? '', secret),
+            {});
+        return;
+      default:
+        throw IntegrationException(
+            'Approving is not supported for ${inst.provider.label} yet.');
+    }
+  }
+
   /// Whether [provider] supports listing repository issues in-app.
   static bool supportsIssues(ProviderType provider) => switch (provider) {
         ProviderType.github ||
@@ -588,6 +639,32 @@ class IntegrationService {
   static DateTime? _date(dynamic v) =>
       v is String ? DateTime.tryParse(v)?.toLocal() : null;
 
+  /// Normalizes a provider CI/pipeline/status string to
+  /// 'success' | 'failed' | 'pending' | ''.
+  static String normalizeCi(String? raw) {
+    switch ((raw ?? '').toLowerCase()) {
+      case 'success':
+      case 'passed':
+        return 'success';
+      case 'failure':
+      case 'failed':
+      case 'error':
+      case 'canceled':
+      case 'cancelled':
+        return 'failed';
+      case 'pending':
+      case 'running':
+      case 'created':
+      case 'in_progress':
+      case 'queued':
+      case 'waiting_for_resource':
+      case 'manual':
+        return 'pending';
+      default:
+        return '';
+    }
+  }
+
   static List<PullRequest> mapGitHubPRs(
       List<dynamic> items, String login, String repo) {
     return [
@@ -599,16 +676,17 @@ class IntegrationService {
             for (final r in (it['requested_reviewers'] as List?) ?? const [])
               (r as Map<String, dynamic>)['login'] as String? ?? ''
           ];
+          final head = it['head'] as Map<String, dynamic>?;
           return PullRequest(
             id: (it['number'] as num?)?.toInt() ?? 0,
             title: it['title'] as String? ?? '',
             authorName: author,
-            sourceBranch:
-                (it['head'] as Map<String, dynamic>?)?['ref'] as String? ?? '',
+            sourceBranch: head?['ref'] as String? ?? '',
             targetBranch:
                 (it['base'] as Map<String, dynamic>?)?['ref'] as String? ?? '',
             repoName: repo,
             url: it['html_url'] as String? ?? '',
+            headSha: head?['sha'] as String? ?? '',
             created: _date(it['created_at']),
             updated: _date(it['updated_at']),
             isMine: login.isNotEmpty && author == login,
@@ -630,6 +708,7 @@ class IntegrationService {
             for (final r in (it['reviewers'] as List?) ?? const [])
               (r as Map<String, dynamic>)['username'] as String? ?? ''
           ];
+          final pipe = it['head_pipeline'] as Map<String, dynamic>?;
           return PullRequest(
             id: (it['iid'] as num?)?.toInt() ?? 0,
             title: it['title'] as String? ?? '',
@@ -638,6 +717,8 @@ class IntegrationService {
             targetBranch: it['target_branch'] as String? ?? '',
             repoName: repo,
             url: it['web_url'] as String? ?? '',
+            headSha: it['sha'] as String? ?? '',
+            ciStatus: normalizeCi(pipe?['status'] as String?),
             created: _date(it['created_at']),
             updated: _date(it['updated_at']),
             isMine: username.isNotEmpty && author == username,

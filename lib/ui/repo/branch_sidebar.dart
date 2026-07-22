@@ -762,6 +762,27 @@ class _PrRow extends StatefulWidget {
 class _PrRowState extends State<_PrRow> {
   bool _hover = false;
 
+  /// Leading CI status indicator (falls back to a neutral PR glyph).
+  Widget _ciIcon(String ci) {
+    switch (ci) {
+      case 'success':
+        return Tooltip(
+            message: 'Checks passed',
+            child: Icon(Icons.check_circle, size: 13, color: AppColors.green));
+      case 'failed':
+        return Tooltip(
+            message: 'Checks failed',
+            child: Icon(Icons.cancel, size: 13, color: AppColors.red));
+      case 'pending':
+        return Tooltip(
+            message: 'Checks running',
+            child:
+                Icon(Icons.hourglass_top, size: 13, color: AppColors.amber));
+      default:
+        return Icon(Icons.merge_type, size: 13, color: AppColors.textMuted);
+    }
+  }
+
   InlineSpan _detail() {
     final pr = widget.pr;
     final df = DateFormat('MMM d, y');
@@ -813,7 +834,7 @@ class _PrRowState extends State<_PrRow> {
             padding: const EdgeInsets.fromLTRB(44, 5, 8, 5),
             child: Row(
               children: [
-                Icon(Icons.check, size: 13, color: AppColors.green),
+                _ciIcon(pr.ciStatus),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text('#${pr.id} ${pr.title}',

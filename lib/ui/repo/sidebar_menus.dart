@@ -603,6 +603,7 @@ Future<void> showPullRequestContextMenu(
       _item('checkout', 'Checkout origin/${pr.sourceBranch}'),
       _item('worktree', 'Create Worktree from Pull Request'),
       const PopupMenuDivider(),
+      _item('approve', 'Approve pull request #${pr.id}'),
       _item('merge', 'Merge pull request #${pr.id}'),
       _item('squash', 'Squash & merge #${pr.id}'),
     ],
@@ -626,6 +627,10 @@ Future<void> showPullRequestContextMenu(
       if (url == null || !context.mounted) return;
       Clipboard.setData(ClipboardData(text: url));
       return _toast(context, 'Copied link for #${pr.id}');
+    case 'approve':
+      return runRepoAction(
+          context, () => state.approvePullRequestById(pr.id),
+          success: 'Approved pull request #${pr.id}');
     case 'merge':
     case 'squash':
       if (await _confirm(

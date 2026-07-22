@@ -56,6 +56,33 @@ String? gitPrCreateUrlInto(String remote, String base, String head) {
       '${Uri.encodeComponent(head)}?expand=1';
 }
 
+/// Splits [text] into runs, tagging `#123` issue references. Each token is
+/// either plain text (`issue == null`) or an issue reference with its number.
+List<({String text, int? issue})> tokenizeIssueRefs(String text) {
+  final re = RegExp(r'#(\d+)');
+  final out = <({String text, int? issue})>[];
+  var last = 0;
+  for (final m in re.allMatches(text)) {
+    if (m.start > last) {
+      out.add((text: text.substring(last, m.start), issue: null));
+    }
+    out.add((text: m.group(0)!, issue: int.parse(m.group(1)!)));
+    last = m.end;
+  }
+  if (last < text.length) out.add((text: text.substring(last), issue: null));
+  if (out.isEmpty) out.add((text: text, issue: null));
+  return out;
+}
+
+/// URL to a repository issue by number (GitLab uses `/-/issues/`).
+String? gitIssueUrl(String remote, int number) {
+  final base = gitHttpBase(remote);
+  if (base == null) return null;
+  return base.contains('gitlab')
+      ? '$base/-/issues/$number'
+      : '$base/issues/$number';
+}
+
 /// URL to view a specific pull request by id.
 String? gitPrViewUrl(String remote, int prId) {
   final base = gitHttpBase(remote);

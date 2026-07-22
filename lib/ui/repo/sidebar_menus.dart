@@ -597,7 +597,7 @@ Future<void> showPullRequestContextMenu(
     position: _at(context, pos),
     constraints: const BoxConstraints(minWidth: 280),
     items: [
-      _item('view', 'View pull request #${pr.id} on Azure DevOps'),
+      _item('view', 'View pull request #${pr.id} in browser'),
       _item('copy', 'Copy link for pull request #${pr.id}'),
       const PopupMenuDivider(),
       _item('checkout', 'Checkout origin/${pr.sourceBranch}'),
@@ -606,15 +606,21 @@ Future<void> showPullRequestContextMenu(
   );
   if (sel == null || !context.mounted) return;
 
+  // Prefer the PR's own web URL (set by generic providers); fall back to a
+  // URL derived from the remote (Azure and older entries).
+  Future<String?> prUrl() async => pr.url.isNotEmpty
+      ? pr.url
+      : gitPrViewUrl(await state.git.remoteUrl(), pr.id);
+
   switch (sel) {
     case 'view':
-      final url = gitPrViewUrl(await state.git.remoteUrl(), pr.id);
-      if (url == null) return _toast(context, 'No remote configured.');
+      final url = await prUrl();
+      if (url == null || !context.mounted) return;
       await GitService.openUrl(url);
       return _toast(context, 'Opening pull request #${pr.id}…');
     case 'copy':
-      final url = gitPrViewUrl(await state.git.remoteUrl(), pr.id);
-      if (url == null) return _toast(context, 'No remote configured.');
+      final url = await prUrl();
+      if (url == null || !context.mounted) return;
       Clipboard.setData(ClipboardData(text: url));
       return _toast(context, 'Copied link for #${pr.id}');
     case 'checkout':

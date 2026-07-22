@@ -11,6 +11,7 @@ import '../models/integration.dart';
 import '../models/pull_request.dart';
 import '../services/azure_devops_service.dart';
 import '../services/commit_graph.dart';
+import '../services/integration_service.dart';
 import '../services/diff_parser.dart';
 import '../services/git_service.dart';
 import '../services/storage_service.dart';
@@ -171,34 +172,74 @@ class RepoState extends ChangeNotifier {
 
   Future<void> _fetchPullRequests() async {
     final remote = await git.remoteUrl();
+    // Azure DevOps keeps its dedicated path (org-based matching + API).
     final parsed = AzureRemote.parse(remote);
-    if (parsed == null) {
-      pullRequests = [];
-      prError = null;
+    if (parsed != null) {
+      final instances = await _storage.loadIntegrations();
+      final match = instances.where((a) =>
+          a.provider == ProviderType.azureDevOps &&
+          a.organization.toLowerCase() == parsed.org.toLowerCase());
+      if (match.isEmpty) {
+        pullRequests = [];
+        prError =
+            'Connect Azure DevOps (org "${parsed.org}") to see pull requests.';
+        notifyListeners();
+        return;
+      }
+      final instance = match.first;
+      final pat = await _storage.readPat(instance.id);
+      if (pat == null) {
+        prError = 'No stored token for ${parsed.org}.';
+        notifyListeners();
+        return;
+      }
+      prsLoading = true;
+      notifyListeners();
+      try {
+        pullRequests = await AzureDevOpsService.listPullRequests(parsed, pat,
+            currentUser: instance.userName);
+        prError = null;
+      } catch (e) {
+        prError = e.toString();
+      } finally {
+        prsLoading = false;
+        notifyListeners();
+      }
       return;
     }
-    final instances = await _storage.loadIntegrations();
-    final match = instances.where((a) =>
-        a.provider == ProviderType.azureDevOps &&
-        a.organization.toLowerCase() == parsed.org.toLowerCase());
-    if (match.isEmpty) {
+
+    // GitHub / GitLab / Bitbucket Cloud: match a connected integration by host.
+    final slug = IntegrationService.parseRemoteSlug(remote);
+    if (slug == null) {
       pullRequests = [];
-      prError = 'Connect Azure DevOps (org "${parsed.org}") to see pull requests.';
+      prError = null;
       notifyListeners();
       return;
     }
-    final instance = match.first;
-    final pat = await _storage.readPat(instance.id);
-    if (pat == null) {
-      prError = 'No stored token for ${parsed.org}.';
+    final instances = await _storage.loadIntegrations();
+    final match = instances.where((i) =>
+        IntegrationService.supportsPullRequests(i.provider) &&
+        i.host.toLowerCase() == slug.host.toLowerCase());
+    if (match.isEmpty) {
+      // No connected provider for this host — leave the section quietly empty.
+      pullRequests = [];
+      prError = null;
+      notifyListeners();
+      return;
+    }
+    final inst = match.first;
+    final secret = await _storage.readPat(inst.id);
+    if (secret == null) {
+      pullRequests = [];
+      prError = 'No stored token for ${inst.host}.';
       notifyListeners();
       return;
     }
     prsLoading = true;
     notifyListeners();
     try {
-      pullRequests = await AzureDevOpsService.listPullRequests(parsed, pat,
-          currentUser: instance.userName);
+      pullRequests = await IntegrationService.listPullRequests(inst, secret,
+          owner: slug.owner, repo: slug.repo);
       prError = null;
     } catch (e) {
       prError = e.toString();
@@ -206,6 +247,45 @@ class RepoState extends ChangeNotifier {
       prsLoading = false;
       notifyListeners();
     }
+  }
+
+  /// Resolves the connected integration + token + slug for creating a PR on the
+  /// current repo's remote, or null when none is connected / supported.
+  Future<({Integration inst, String secret, String owner, String repo})?>
+      pullRequestTarget() async {
+    final remote = await git.remoteUrl();
+    final slug = IntegrationService.parseRemoteSlug(remote);
+    if (slug == null) return null;
+    final instances = await _storage.loadIntegrations();
+    final match = instances.where((i) =>
+        IntegrationService.supportsPullRequests(i.provider) &&
+        i.host.toLowerCase() == slug.host.toLowerCase());
+    if (match.isEmpty) return null;
+    final inst = match.first;
+    final secret = await _storage.readPat(inst.id);
+    if (secret == null) return null;
+    return (inst: inst, secret: secret, owner: slug.owner, repo: slug.repo);
+  }
+
+  Future<String> createPullRequest({
+    required Integration inst,
+    required String secret,
+    required String owner,
+    required String repo,
+    required String title,
+    required String body,
+    required String sourceBranch,
+    required String targetBranch,
+    bool draft = false,
+  }) {
+    return IntegrationService.createPullRequest(inst, secret,
+        owner: owner,
+        repo: repo,
+        title: title,
+        body: body,
+        sourceBranch: sourceBranch,
+        targetBranch: targetBranch,
+        draft: draft);
   }
 
   // Stashes hidden from the list (keyed by stash commit sha).

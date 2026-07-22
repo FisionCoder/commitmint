@@ -12,6 +12,7 @@ import '../../theme/app_theme.dart';
 import '../widgets/notifier.dart';
 import 'git_links.dart';
 import 'interactive_rebase_dialog.dart';
+import 'pull_request_dialog.dart';
 import 'repo_actions.dart';
 
 MenuStyle get commitMenuStyle => MenuStyle(
@@ -297,6 +298,13 @@ Future<void> _dispatch(BuildContext context, RepoState state,
   }
   if (action.startsWith('startPRInto:')) {
     final target = action.substring('startPRInto:'.length);
+    final prTarget = await state.pullRequestTarget();
+    if (prTarget != null && context.mounted) {
+      return showCreatePullRequestDialog(context, state,
+          target: prTarget,
+          sourceBranch: state.currentBranch,
+          targetBranch: target);
+    }
     final url = gitPrCreateUrlInto(
         await state.git.remoteUrl(), target, state.currentBranch);
     if (url == null) return _toast(context, 'No remote URL configured.');
@@ -388,6 +396,11 @@ Future<void> _dispatch(BuildContext context, RepoState state,
       }
       return;
     case 'startPR':
+      final prTarget = await state.pullRequestTarget();
+      if (prTarget != null && context.mounted) {
+        return showCreatePullRequestDialog(context, state,
+            target: prTarget, sourceBranch: branch, targetBranch: '');
+      }
       final url = gitPrCreateUrl(await state.git.remoteUrl(), branch);
       if (url == null) return _toast(context, 'No remote URL configured.');
       await GitService.openUrl(url);

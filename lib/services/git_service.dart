@@ -430,6 +430,27 @@ class GitService {
     return _parseCommitRecords(r.stdout as String);
   }
 
+  /// Commit hashes matching a search: by path (`git log -- <path>`) or by
+  /// content change / pickaxe (`git log -S<term>`). Searches full history up to
+  /// [limit].
+  Future<Set<String>> searchCommits(String term,
+      {required bool pathMode, int limit = 2000}) async {
+    if (term.trim().isEmpty) return {};
+    final args = ['log', '--format=%H', '-n', '$limit'];
+    if (pathMode) {
+      args.addAll(['--', term]);
+    } else {
+      args.add('-S$term');
+    }
+    final r = await _run(args);
+    if (r.exitCode != 0) return {};
+    return (r.stdout as String)
+        .split('\n')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet();
+  }
+
   /// Commit history for a single file, following renames (`git log --follow`).
   Future<List<GitCommit>> fileHistory(String path, {int limit = 200}) async {
     final r = await _run([

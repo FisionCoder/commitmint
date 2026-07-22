@@ -137,6 +137,8 @@ class RepoState extends ChangeNotifier {
     if (!searchVisible && commitSearch.isEmpty) return;
     searchVisible = false;
     commitSearch = '';
+    _searchShas = null;
+    _searchToken++;
     _recomputeGraph();
     notifyListeners();
   }
@@ -146,19 +148,52 @@ class RepoState extends ChangeNotifier {
   /// Number of commits matching the active search (0 when no search).
   int get searchMatchCount => hasCommitSearch ? graphRows.length : 0;
 
+  /// When set, the active search is git-backed (path/pickaxe) and the graph is
+  /// filtered to these commit hashes instead of the in-memory text predicate.
+  Set<String>? _searchShas;
+  int _searchToken = 0;
+
   void setCommitSearch(String v) {
     if (v == commitSearch) return;
     commitSearch = v;
-    _recomputeGraph();
-    notifyListeners();
+    final parsed = _parseSearch(v);
+    if (parsed == null) {
+      // Plain in-memory text search (message/author/sha/ref).
+      _searchShas = null;
+      _searchToken++;
+      _recomputeGraph();
+      notifyListeners();
+    } else {
+      // Git-backed search: fetch matching hashes, then filter.
+      final token = ++_searchToken;
+      notifyListeners();
+      () async {
+        final shas = await git.searchCommits(parsed.$2, pathMode: parsed.$1);
+        if (token != _searchToken) return; // superseded by newer input
+        _searchShas = shas;
+        _recomputeGraph();
+        notifyListeners();
+      }();
+    }
   }
 
-  bool _matchesSearch(GitCommit c, String q) =>
-      c.subject.toLowerCase().contains(q) ||
-      c.author.toLowerCase().contains(q) ||
-      c.authorEmail.toLowerCase().contains(q) ||
-      c.hash.toLowerCase().contains(q) ||
-      c.refs.any((r) => r.toLowerCase().contains(q));
+  /// Parses a `file:<path>` / `code:<text>` prefix. Returns (pathMode, term)
+  /// or null for a plain text search.
+  (bool, String)? _parseSearch(String v) {
+    final t = v.trim();
+    if (t.startsWith('file:')) return (true, t.substring(5).trim());
+    if (t.startsWith('code:')) return (false, t.substring(5).trim());
+    return null;
+  }
+
+  bool _matchesSearch(GitCommit c, String q) {
+    if (_searchShas != null) return _searchShas!.contains(c.hash);
+    return c.subject.toLowerCase().contains(q) ||
+        c.author.toLowerCase().contains(q) ||
+        c.authorEmail.toLowerCase().contains(q) ||
+        c.hash.toLowerCase().contains(q) ||
+        c.refs.any((r) => r.toLowerCase().contains(q));
+  }
 
   // Hidden refs (full ref names, e.g. refs/heads/foo) — excluded from the
   // graph and the sidebar lists.

@@ -406,7 +406,8 @@ class _CommitGraphViewState extends State<CommitGraphView> {
                     fontSize: 13, color: AppColors.textPrimary),
                 cursorColor: AppColors.accent,
                 decoration: InputDecoration.collapsed(
-                  hintText: 'Search commits — message, author, SHA, branch',
+                  hintText: 'Search commits — message/author/SHA, '
+                      'file:<path>, code:<text>',
                   hintStyle:
                       TextStyle(fontSize: 13, color: AppColors.textMuted),
                 ),

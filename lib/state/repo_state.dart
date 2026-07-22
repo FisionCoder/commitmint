@@ -8,6 +8,7 @@ import '../models/git_branch.dart';
 import '../models/git_commit.dart';
 import '../models/git_repository.dart';
 import '../models/integration.dart';
+import '../models/issue.dart';
 import '../models/pull_request.dart';
 import '../services/azure_devops_service.dart';
 import '../services/commit_graph.dart';
@@ -168,6 +169,57 @@ class RepoState extends ChangeNotifier {
   void setPrSearch(String v) {
     prSearch = v;
     notifyListeners();
+  }
+
+  // Repository issues (GitHub / GitLab).
+  List<Issue> issues = [];
+  bool issuesLoading = false;
+  String? issuesError;
+
+  /// Merges a pull request (by number/iid/id) via the connected provider, then
+  /// refreshes the PR list.
+  Future<void> mergePullRequestById(int id, {String method = 'merge'}) async {
+    final t = await pullRequestTarget();
+    if (t == null) {
+      throw Exception('No connected provider for this repository.');
+    }
+    await IntegrationService.mergePullRequest(t.inst, t.secret,
+        owner: t.owner, repo: t.repo, id: id, method: method);
+    await _fetchPullRequests();
+  }
+
+  Future<void> _fetchIssues() async {
+    final remote = await git.remoteUrl();
+    final slug = IntegrationService.parseRemoteSlug(remote);
+    if (slug == null) {
+      issues = [];
+      notifyListeners();
+      return;
+    }
+    final instances = await _storage.loadIntegrations();
+    final match = instances.where((i) =>
+        IntegrationService.supportsIssues(i.provider) &&
+        i.host.toLowerCase() == slug.host.toLowerCase());
+    if (match.isEmpty) {
+      issues = [];
+      notifyListeners();
+      return;
+    }
+    final inst = match.first;
+    final secret = await _storage.readPat(inst.id);
+    if (secret == null) return;
+    issuesLoading = true;
+    notifyListeners();
+    try {
+      issues = await IntegrationService.listIssues(inst, secret,
+          owner: slug.owner, repo: slug.repo);
+      issuesError = null;
+    } catch (e) {
+      issuesError = e.toString();
+    } finally {
+      issuesLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> _fetchPullRequests() async {
@@ -404,9 +456,10 @@ class RepoState extends ChangeNotifier {
       loading = false;
     }
     notifyListeners();
-    // Pull requests load in the background (network) so they never block the
-    // graph from rendering.
+    // Pull requests and issues load in the background (network) so they never
+    // block the graph from rendering.
     unawaited(_fetchPullRequests());
+    unawaited(_fetchIssues());
   }
 
   /// Inserts stash (WIP) nodes into the date-ordered [base] commit list, placed

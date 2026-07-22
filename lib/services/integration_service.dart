@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/integration.dart';
+import '../models/issue.dart';
 import '../models/pull_request.dart';
 import 'azure_devops_service.dart';
 
@@ -467,6 +468,111 @@ class IntegrationService {
     }
   }
 
+  /// Merges a pull/merge request. [id] is the PR number / MR iid / Bitbucket
+  /// id. [method] is one of merge / squash / rebase (GitHub/GitLab).
+  static Future<void> mergePullRequest(
+    Integration inst,
+    String secret, {
+    required String owner,
+    required String repo,
+    required int id,
+    String method = 'merge',
+  }) async {
+    switch (inst.provider) {
+      case ProviderType.github:
+      case ProviderType.githubEnterprise:
+        final base = _githubBase(inst.provider, inst.host);
+        await _sendJson('PUT', '$base/repos/$owner/$repo/pulls/$id/merge',
+            _githubHeaders(secret), {'merge_method': method});
+        return;
+      case ProviderType.gitlab:
+      case ProviderType.gitlabSelfManaged:
+        final proj = Uri.encodeComponent('$owner/$repo');
+        await _sendJson(
+            'PUT',
+            'https://${inst.host}/api/v4/projects/$proj/merge_requests/$id/merge',
+            {'PRIVATE-TOKEN': secret},
+            method == 'squash' ? {'squash': true} : {});
+        return;
+      case ProviderType.bitbucket:
+        await _sendJson(
+            'POST',
+            'https://api.bitbucket.org/2.0/repositories/$owner/$repo/pullrequests/$id/merge',
+            _basic(inst.principal ?? '', secret),
+            {'merge_strategy': method == 'squash' ? 'squash' : 'merge_commit'});
+        return;
+      default:
+        throw IntegrationException(
+            'Merging is not supported for ${inst.provider.label} yet.');
+    }
+  }
+
+  /// Whether [provider] supports listing repository issues in-app.
+  static bool supportsIssues(ProviderType provider) => switch (provider) {
+        ProviderType.github ||
+        ProviderType.githubEnterprise ||
+        ProviderType.gitlab ||
+        ProviderType.gitlabSelfManaged =>
+          true,
+        _ => false,
+      };
+
+  /// Lists open issues for [owner]/[repo] (GitHub / GitLab).
+  static Future<List<Issue>> listIssues(Integration inst, String secret,
+      {required String owner, required String repo}) async {
+    switch (inst.provider) {
+      case ProviderType.github:
+      case ProviderType.githubEnterprise:
+        final base = _githubBase(inst.provider, inst.host);
+        final list = await _getJsonList(
+            '$base/repos/$owner/$repo/issues?state=open&per_page=50',
+            _githubHeaders(secret));
+        return mapGitHubIssues(list);
+      case ProviderType.gitlab:
+      case ProviderType.gitlabSelfManaged:
+        final proj = Uri.encodeComponent('$owner/$repo');
+        final list = await _getJsonList(
+            'https://${inst.host}/api/v4/projects/$proj/issues'
+            '?state=opened&per_page=50',
+            {'PRIVATE-TOKEN': secret});
+        return mapGitLabIssues(list);
+      default:
+        return const [];
+    }
+  }
+
+  static List<Issue> mapGitHubIssues(List<dynamic> items) {
+    return [
+      for (final it in items.cast<Map<String, dynamic>>())
+        // The issues endpoint also returns PRs; skip those.
+        if (it['pull_request'] == null)
+          Issue(
+            number: (it['number'] as num?)?.toInt() ?? 0,
+            title: it['title'] as String? ?? '',
+            url: it['html_url'] as String? ?? '',
+            author:
+                (it['user'] as Map<String, dynamic>?)?['login'] as String? ??
+                    '',
+            updated: _date(it['updated_at']),
+          )
+    ];
+  }
+
+  static List<Issue> mapGitLabIssues(List<dynamic> items) {
+    return [
+      for (final it in items.cast<Map<String, dynamic>>())
+        Issue(
+          number: (it['iid'] as num?)?.toInt() ?? 0,
+          title: it['title'] as String? ?? '',
+          url: it['web_url'] as String? ?? '',
+          author:
+              (it['author'] as Map<String, dynamic>?)?['username'] as String? ??
+                  '',
+          updated: _date(it['updated_at']),
+        )
+    ];
+  }
+
   /// Whether [provider] supports in-app PR listing/creation (vs. browser only).
   static bool supportsPullRequests(ProviderType provider) => switch (provider) {
         ProviderType.github ||
@@ -604,18 +710,26 @@ class IntegrationService {
   }
 
   static Future<Map<String, dynamic>> _postJson(
-      String url, Map<String, String> headers, Map<String, dynamic> body) async {
+          String url, Map<String, String> headers, Map<String, dynamic> body) =>
+      _sendJson('POST', url, headers, body);
+
+  static Future<Map<String, dynamic>> _sendJson(String method, String url,
+      Map<String, String> headers, Map<String, dynamic> body) async {
     http.Response res;
     try {
-      res = await http
-          .post(Uri.parse(url),
-              headers: {...headers, 'Content-Type': 'application/json'},
-              body: jsonEncode(body))
-          .timeout(_timeout);
+      final uri = Uri.parse(url);
+      final h = {...headers, 'Content-Type': 'application/json'};
+      final payload = jsonEncode(body);
+      final req = http.Request(method, uri)
+        ..headers.addAll(h)
+        ..body = payload;
+      final streamed = await req.send().timeout(_timeout);
+      res = await http.Response.fromStream(streamed);
     } catch (e) {
       throw IntegrationException('Could not reach $url.');
     }
-    if (res.statusCode == 200 || res.statusCode == 201) {
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      if (res.body.trim().isEmpty) return <String, dynamic>{};
       final decoded = jsonDecode(res.body);
       return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
     }

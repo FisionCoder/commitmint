@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/git_branch.dart';
+import '../../models/issue.dart';
 import '../../models/pull_request.dart';
 import '../../services/git_service.dart';
 import '../../state/layout_state.dart';
@@ -234,8 +236,24 @@ class _BranchSidebarState extends State<BranchSidebar> {
         state.pullRequests.isEmpty ? null : state.pullRequests.length,
         _prChildren(context, state));
 
-    add(SidebarSectionId.issues, Icons.error_outline, 'ISSUES', null,
-        const [_EmptyHint('No issues')]);
+    add(
+        SidebarSectionId.issues,
+        Icons.error_outline,
+        'ISSUES',
+        state.issues.isEmpty ? null : state.issues.length,
+        state.issuesLoading
+            ? const [
+                Padding(
+                  padding: EdgeInsets.fromLTRB(34, 4, 10, 8),
+                  child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2)),
+                )
+              ]
+            : state.issues.isEmpty
+                ? [_EmptyHint(state.issuesError ?? 'No issues')]
+                : [for (final i in state.issues) _IssueRow(issue: i)]);
 
     add(SidebarSectionId.teams, Icons.groups_outlined, 'TEAMS', null,
         const [_EmptyHint('No teams')]);
@@ -619,6 +637,60 @@ class _SubmoduleRowState extends State<_SubmoduleRow> {
                       overflow: TextOverflow.ellipsis,
                       maxLines: 1,
                       style: TextStyle(fontSize: 12.5, color: color)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IssueRow extends StatefulWidget {
+  final Issue issue;
+  const _IssueRow({required this.issue});
+  @override
+  State<_IssueRow> createState() => _IssueRowState();
+}
+
+class _IssueRowState extends State<_IssueRow> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    final i = widget.issue;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: i.url.isEmpty
+            ? null
+            : () => launchUrl(Uri.parse(i.url),
+                mode: LaunchMode.externalApplication),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          decoration: BoxDecoration(
+            color: _hover ? AppColors.surfaceRaised : Colors.transparent,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          padding: const EdgeInsets.only(left: 22, right: 8, top: 5, bottom: 5),
+          child: Row(
+            children: [
+              Text('#${i.number}',
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      fontFamily: 'Consolas',
+                      color: AppColors.textMuted)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Tooltip(
+                  message: i.author.isEmpty ? i.title : '${i.title}\n@${i.author}',
+                  child: Text(i.title,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: TextStyle(
+                          fontSize: 12.5, color: AppColors.textSecondary)),
                 ),
               ),
             ],

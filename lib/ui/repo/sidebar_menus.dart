@@ -602,6 +602,9 @@ Future<void> showPullRequestContextMenu(
       const PopupMenuDivider(),
       _item('checkout', 'Checkout origin/${pr.sourceBranch}'),
       _item('worktree', 'Create Worktree from Pull Request'),
+      const PopupMenuDivider(),
+      _item('merge', 'Merge pull request #${pr.id}'),
+      _item('squash', 'Squash & merge #${pr.id}'),
     ],
   );
   if (sel == null || !context.mounted) return;
@@ -623,6 +626,20 @@ Future<void> showPullRequestContextMenu(
       if (url == null || !context.mounted) return;
       Clipboard.setData(ClipboardData(text: url));
       return _toast(context, 'Copied link for #${pr.id}');
+    case 'merge':
+    case 'squash':
+      if (await _confirm(
+          context,
+          '${sel == 'squash' ? 'Squash & merge' : 'Merge'} #${pr.id}?',
+          'Merge "${pr.title}" (${pr.sourceBranch} → ${pr.targetBranch}) '
+              'on the remote?')) {
+        return runRepoAction(
+            context,
+            () => state.mergePullRequestById(pr.id,
+                method: sel == 'squash' ? 'squash' : 'merge'),
+            success: 'Merged pull request #${pr.id}');
+      }
+      return;
     case 'checkout':
       return runRepoAction(context, () => state.checkout(pr.sourceBranch),
           success: 'Checked out ${pr.sourceBranch}');

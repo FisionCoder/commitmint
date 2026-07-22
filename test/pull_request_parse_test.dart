@@ -111,6 +111,50 @@ void main() {
     });
   });
 
+  group('mapGitHubIssues', () {
+    test('maps issues and skips pull requests', () {
+      final json = [
+        {
+          'number': 10,
+          'title': 'A bug',
+          'html_url': 'https://github.com/o/r/issues/10',
+          'user': {'login': 'dave'},
+          'updated_at': '2026-07-01T00:00:00Z',
+        },
+        {
+          // This is a PR (has pull_request) and must be skipped.
+          'number': 11,
+          'title': 'A PR',
+          'html_url': 'https://github.com/o/r/pull/11',
+          'pull_request': {'url': 'x'},
+        },
+      ];
+      final issues = IntegrationService.mapGitHubIssues(json);
+      expect(issues.length, 1);
+      expect(issues.first.number, 10);
+      expect(issues.first.title, 'A bug');
+      expect(issues.first.url, 'https://github.com/o/r/issues/10');
+      expect(issues.first.author, 'dave');
+    });
+  });
+
+  group('mapGitLabIssues', () {
+    test('maps iid/title/web_url', () {
+      final json = [
+        {
+          'iid': 5,
+          'title': 'Broken thing',
+          'web_url': 'https://gitlab.com/g/p/-/issues/5',
+          'author': {'username': 'erin'},
+        },
+      ];
+      final issues = IntegrationService.mapGitLabIssues(json);
+      expect(issues.first.number, 5);
+      expect(issues.first.url, 'https://gitlab.com/g/p/-/issues/5');
+      expect(issues.first.author, 'erin');
+    });
+  });
+
   group('mapBitbucketPRs', () {
     test('maps id/branches/url/author', () {
       final json = [

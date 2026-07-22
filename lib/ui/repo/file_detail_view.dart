@@ -1,12 +1,16 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/file_change.dart';
+import '../../models/git_commit.dart';
 import '../../services/diff_parser.dart';
+import '../../services/git_service.dart';
 import '../../state/repo_state.dart';
 import '../../theme/app_theme.dart';
 import '../widgets/common.dart';
-import '../widgets/notifier.dart';
 import 'repo_actions.dart';
 
 const _mono = TextStyle(
@@ -34,11 +38,15 @@ class FileDetailView extends StatelessWidget {
           _SubToolbar(file: file),
           const Divider(height: 1),
           Expanded(
-            child: state.editing
-                ? _Editor(state: state)
-                : state.fileViewMode == FileViewMode.file
-                    ? _FileContent(state: state)
-                    : _DiffContent(state: state, file: file),
+            child: switch (state.fileAux) {
+              FileAux.blame => _BlameContent(state: state),
+              FileAux.history => _HistoryContent(state: state),
+              FileAux.none => state.editing
+                  ? _Editor(state: state)
+                  : state.fileViewMode == FileViewMode.file
+                      ? _FileContent(state: state)
+                      : _DiffContent(state: state, file: file),
+            },
           ),
         ],
       ),
@@ -135,15 +143,30 @@ class _SubToolbar extends StatelessWidget {
       onSelect: (i) => state.setFileViewMode(
           i == 0 ? FileViewMode.file : FileViewMode.diff),
     );
-    final blame = _GhostBtn('Blame', () => _notImpl(context, 'Blame'));
-    final history = _GhostBtn('History', () => _notImpl(context, 'History'));
+    // Unified vs side-by-side, only meaningful in the (unified) diff view.
+    final splitToggle = _Segmented(
+      options: const ['Unified', 'Split'],
+      selected: state.diffSplit ? 1 : 0,
+      onSelect: (i) => state.setDiffSplit(i == 1),
+    );
+    final showSplit = state.fileAux == FileAux.none &&
+        !state.editing &&
+        state.fileViewMode == FileViewMode.diff;
+    final blame = _GhostBtn('Blame',
+        () => state.setFileAux(
+            state.fileAux == FileAux.blame ? FileAux.none : FileAux.blame),
+        active: state.fileAux == FileAux.blame);
+    final history = _GhostBtn('History',
+        () => state.setFileAux(
+            state.fileAux == FileAux.history ? FileAux.none : FileAux.history),
+        active: state.fileAux == FileAux.history);
 
     return Container(
       height: 38,
       color: AppColors.surface,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: LayoutBuilder(builder: (context, c) {
-        final wide = c.maxWidth >= 640;
+        final wide = c.maxWidth >= 720;
         final children = <Widget>[
           if (!historical) ...[edit, wide ? const Spacer() : const SizedBox(width: 12)],
           if (!historical) ...[
@@ -151,6 +174,10 @@ class _SubToolbar extends StatelessWidget {
             const SizedBox(width: 10),
           ],
           modeToggle,
+          if (showSplit) ...[
+            const SizedBox(width: 10),
+            splitToggle,
+          ],
           wide ? const Spacer() : const SizedBox(width: 12),
           blame,
           history,
@@ -162,13 +189,83 @@ class _SubToolbar extends StatelessWidget {
       }),
     );
   }
-
-  void _notImpl(BuildContext context, String what) {
-    notify(context, '$what is not wired up in this build.');
-  }
 }
 
 // ----------------------------------------------------------------- diff ------
+
+/// The changed character span in a pair of (old, new) lines, computed with a
+/// cheap common-prefix/suffix heuristic. Returns the sub-range `[start,end)` to
+/// highlight in [old] and in [nw]; a null range means that side is unchanged.
+({int s, int e})? _spanFor(String s, int prefix, int suffix) {
+  final end = s.length - suffix;
+  return end > prefix ? (s: prefix, e: end) : null;
+}
+
+(({int s, int e})?, ({int s, int e})?) _intraline(String a, String b) {
+  if (a == b) return (null, null);
+  final minLen = a.length < b.length ? a.length : b.length;
+  var p = 0;
+  while (p < minLen && a.codeUnitAt(p) == b.codeUnitAt(p)) {
+    p++;
+  }
+  var suf = 0;
+  while (suf < minLen - p &&
+      a.codeUnitAt(a.length - 1 - suf) == b.codeUnitAt(b.length - 1 - suf)) {
+    suf++;
+  }
+  return (_spanFor(a, p, suf), _spanFor(b, p, suf));
+}
+
+/// Builds intraline highlight ranges keyed by line index for a hunk: pairs each
+/// run of deletions with the following run of additions, line by line.
+Map<int, ({int s, int e})> _hunkHighlights(List<DiffLine> lines) {
+  final out = <int, ({int s, int e})>{};
+  var i = 0;
+  while (i < lines.length) {
+    if (lines[i].type == DiffLineType.deletion) {
+      final dStart = i;
+      while (i < lines.length && lines[i].type == DiffLineType.deletion) {
+        i++;
+      }
+      final dEnd = i;
+      final aStart = i;
+      while (i < lines.length && lines[i].type == DiffLineType.addition) {
+        i++;
+      }
+      final aEnd = i;
+      final pairs =
+          (dEnd - dStart) < (aEnd - aStart) ? dEnd - dStart : aEnd - aStart;
+      for (var k = 0; k < pairs; k++) {
+        final (oldSpan, newSpan) =
+            _intraline(lines[dStart + k].text, lines[aStart + k].text);
+        if (oldSpan != null) out[dStart + k] = oldSpan;
+        if (newSpan != null) out[aStart + k] = newSpan;
+      }
+    } else {
+      i++;
+    }
+  }
+  return out;
+}
+
+/// Renders code text with an optional highlighted [span] (changed characters).
+Widget _codeText(String text, Color color, {({int s, int e})? span, Color? highlight}) {
+  final t = text.isEmpty ? ' ' : text;
+  if (span == null || highlight == null || span.e > t.length) {
+    return Text(t, style: _mono.copyWith(color: color));
+  }
+  return Text.rich(TextSpan(
+    style: _mono.copyWith(color: color),
+    children: [
+      TextSpan(text: t.substring(0, span.s)),
+      TextSpan(
+          text: t.substring(span.s, span.e),
+          style: TextStyle(backgroundColor: highlight)),
+      TextSpan(text: t.substring(span.e)),
+    ],
+  ));
+}
+
 class _DiffContent extends StatelessWidget {
   final RepoState state;
   final FileChange file;
@@ -188,13 +285,25 @@ class _DiffContent extends StatelessWidget {
         }
         final diff = snap.data!;
         if (diff.isBinary) {
-          return const _Empty(text: 'Binary file — no text diff to show.');
+          return _BinaryDiff(state: state, file: file);
         }
         if (diff.hunks.isEmpty) {
           return _Empty(
               text: state.viewStaged
                   ? 'No staged changes for this file.'
                   : 'No unstaged changes for this file.');
+        }
+        if (state.diffSplit) {
+          // Split view wraps long lines (no horizontal scroll), so it uses a
+          // plain vertical scroller rather than the two-axis _CodeScrollView.
+          return _VerticalCode(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final hunk in diff.hunks) _SplitHunk(hunk: hunk),
+              ],
+            ),
+          );
         }
         return _CodeScrollView(
           child: Column(
@@ -276,6 +385,7 @@ class _HunkWidget extends StatelessWidget {
     final canStageHunks = !state.openFileIsHistorical &&
         file.type != ChangeType.untracked &&
         hunk.rawText.isNotEmpty;
+    final highlights = _hunkHighlights(hunk.lines);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -325,7 +435,8 @@ class _HunkWidget extends StatelessWidget {
             ],
           ),
         ),
-        for (final line in hunk.lines) _DiffLineRow(line: line),
+        for (var i = 0; i < hunk.lines.length; i++)
+          _DiffLineRow(line: hunk.lines[i], highlight: highlights[i]),
       ],
     );
   }
@@ -333,7 +444,10 @@ class _HunkWidget extends StatelessWidget {
 
 class _DiffLineRow extends StatelessWidget {
   final DiffLine line;
-  const _DiffLineRow({required this.line});
+
+  /// The changed character range within [line], if any (word-level diff).
+  final ({int s, int e})? highlight;
+  const _DiffLineRow({required this.line, this.highlight});
 
   @override
   Widget build(BuildContext context) {
@@ -399,8 +513,16 @@ class _DiffLineRow extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.only(right: 24),
-            child: Text(line.text.isEmpty ? ' ' : line.text,
-                style: _mono.copyWith(color: AppColors.textPrimary)),
+            child: _codeText(
+              line.text,
+              AppColors.textPrimary,
+              span: highlight,
+              highlight: line.type == DiffLineType.addition
+                  ? AppColors.green.withValues(alpha: 0.30)
+                  : line.type == DiffLineType.deletion
+                      ? AppColors.red.withValues(alpha: 0.30)
+                      : null,
+            ),
           ),
         ],
       ),
@@ -414,6 +536,375 @@ class _DiffLineRow extends StatelessWidget {
         child: Text(n?.toString() ?? '',
             style: _mono.copyWith(color: AppColors.textMuted, fontSize: 11.5)),
       );
+}
+
+/// A vertical-only scroll region with selectable text (used by the split diff,
+/// which wraps long lines instead of scrolling horizontally).
+class _VerticalCode extends StatefulWidget {
+  final Widget child;
+  const _VerticalCode({required this.child});
+  @override
+  State<_VerticalCode> createState() => _VerticalCodeState();
+}
+
+class _VerticalCodeState extends State<_VerticalCode> {
+  final _v = ScrollController();
+  @override
+  void dispose() {
+    _v.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scrollbar(
+      controller: _v,
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        controller: _v,
+        child: SelectionArea(child: widget.child),
+      ),
+    );
+  }
+}
+
+// -------------------------------------------------------- side-by-side diff ---
+class _SplitHunk extends StatelessWidget {
+  final DiffHunk hunk;
+  const _SplitHunk({required this.hunk});
+
+  @override
+  Widget build(BuildContext context) {
+    // Build aligned (old, new) row pairs from the unified hunk.
+    final rows = <(DiffLine?, DiffLine?, ({int s, int e})?, ({int s, int e})?)>[];
+    final lines = hunk.lines;
+    var i = 0;
+    while (i < lines.length) {
+      final t = lines[i].type;
+      if (t == DiffLineType.meta) {
+        i++;
+        continue;
+      }
+      if (t == DiffLineType.context) {
+        rows.add((lines[i], lines[i], null, null));
+        i++;
+        continue;
+      }
+      final dels = <DiffLine>[];
+      while (i < lines.length && lines[i].type == DiffLineType.deletion) {
+        dels.add(lines[i]);
+        i++;
+      }
+      final adds = <DiffLine>[];
+      while (i < lines.length && lines[i].type == DiffLineType.addition) {
+        adds.add(lines[i]);
+        i++;
+      }
+      final n = dels.length > adds.length ? dels.length : adds.length;
+      for (var k = 0; k < n; k++) {
+        final d = k < dels.length ? dels[k] : null;
+        final a = k < adds.length ? adds[k] : null;
+        ({int s, int e})? ds, asp;
+        if (d != null && a != null) {
+          final (o, nw) = _intraline(d.text, a.text);
+          ds = o;
+          asp = nw;
+        }
+        rows.add((d, a, ds, asp));
+      }
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SelectionContainer.disabled(
+          child: Container(
+            color: const Color(0xFF202733),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            child: Text(hunk.header,
+                style:
+                    _mono.copyWith(color: AppColors.accentTeal, fontSize: 12)),
+          ),
+        ),
+        for (final r in rows)
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: _cell(r.$1, r.$3, isOld: true)),
+                Container(width: 1, color: AppColors.border),
+                Expanded(child: _cell(r.$2, r.$4, isOld: false)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _cell(DiffLine? line, ({int s, int e})? span, {required bool isOld}) {
+    if (line == null) {
+      return const ColoredBox(color: Color(0x11000000), child: SizedBox.expand());
+    }
+    final changed = line.type != DiffLineType.context;
+    final base = isOld ? AppColors.red : AppColors.green;
+    return Container(
+      color: changed ? base.withValues(alpha: 0.12) : Colors.transparent,
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SelectionContainer.disabled(
+            child: Container(
+              width: 40,
+              padding: const EdgeInsets.only(right: 8),
+              alignment: Alignment.topRight,
+              child: Text('${(isOld ? line.oldNo : line.newNo) ?? ''}',
+                  style: _mono.copyWith(
+                      color: AppColors.textMuted, fontSize: 11.5)),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: _codeText(line.text, AppColors.textPrimary,
+                span: changed ? span : null,
+                highlight: changed ? base.withValues(alpha: 0.30) : null),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ------------------------------------------------------------- binary/image ---
+class _BinaryDiff extends StatelessWidget {
+  final RepoState state;
+  final FileChange file;
+  const _BinaryDiff({required this.state, required this.file});
+
+  static const _imageExts = {
+    'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ico'
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final ext = file.path.contains('.')
+        ? file.path.split('.').last.toLowerCase()
+        : '';
+    // Preview the working-tree image (the common "I changed an image" case).
+    if (!state.openFileIsHistorical && _imageExts.contains(ext)) {
+      final abs = '${state.repo.path}${Platform.pathSeparator}'
+          '${file.path.replaceAll('/', Platform.pathSeparator)}';
+      final f = File(abs);
+      if (f.existsSync()) {
+        return Container(
+          color: AppColors.background,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              Text('Image preview (working tree)',
+                  style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+              const SizedBox(height: 12),
+              Expanded(
+                child: InteractiveViewer(
+                  child: Image.file(f, fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) =>
+                          const _Empty(text: 'Could not render image.')),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+    return _Empty(
+        text: ext.isEmpty
+            ? 'Binary file — no text diff to show.'
+            : 'Binary (.$ext) file — no text diff to show.');
+  }
+}
+
+// -------------------------------------------------------------------- blame ---
+class _BlameContent extends StatelessWidget {
+  final RepoState state;
+  const _BlameContent({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<BlameLine>>(
+      future: state.loadBlame(),
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return const Center(
+              child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2)));
+        }
+        final lines = snap.data!;
+        if (lines.isEmpty) {
+          return const _Empty(text: 'No blame information for this file.');
+        }
+        // Alternate a subtle background whenever the commit changes, so runs of
+        // lines from the same commit read as one group.
+        final shaded = List<bool>.filled(lines.length, false);
+        var toggle = false;
+        String? prev;
+        for (var i = 0; i < lines.length; i++) {
+          if (lines[i].sha != prev) {
+            toggle = !toggle;
+            prev = lines[i].sha;
+          }
+          shaded[i] = toggle;
+        }
+        return _CodeScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < lines.length; i++)
+                _BlameRow(line: lines[i], shaded: shaded[i]),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _BlameRow extends StatelessWidget {
+  final BlameLine line;
+  final bool shaded;
+  const _BlameRow({required this.line, required this.shaded});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: shaded ? AppColors.surfaceRaised.withValues(alpha: 0.25) : null,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SelectionContainer.disabled(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Tooltip(
+                  message:
+                      '${line.shortSha}  ${line.author}\n${line.summary}',
+                  child: Container(
+                    width: 78,
+                    padding: const EdgeInsets.only(left: 8, right: 8),
+                    child: Text(line.shortSha,
+                        overflow: TextOverflow.ellipsis,
+                        style: _mono.copyWith(
+                            color: AppColors.accentTeal, fontSize: 11.5)),
+                  ),
+                ),
+                Container(
+                  width: 120,
+                  padding: const EdgeInsets.only(right: 10),
+                  child: Text(line.author,
+                      overflow: TextOverflow.ellipsis,
+                      style: _mono.copyWith(
+                          color: AppColors.textMuted, fontSize: 11.5)),
+                ),
+                Container(
+                  width: _gutter,
+                  padding: const EdgeInsets.only(right: 8),
+                  alignment: Alignment.centerRight,
+                  child: Text('${line.lineNo}',
+                      style: _mono.copyWith(
+                          color: AppColors.textMuted, fontSize: 11.5)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Padding(
+            padding: const EdgeInsets.only(right: 24),
+            child: Text(line.content.isEmpty ? ' ' : line.content,
+                style: _mono.copyWith(color: AppColors.textPrimary)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ------------------------------------------------------------- file history ---
+class _HistoryContent extends StatelessWidget {
+  final RepoState state;
+  const _HistoryContent({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<GitCommit>>(
+      future: state.loadFileHistory(),
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return const Center(
+              child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2)));
+        }
+        final commits = snap.data!;
+        if (commits.isEmpty) {
+          return const _Empty(text: 'No history for this file.');
+        }
+        final fmt = DateFormat('yyyy-MM-dd HH:mm');
+        return ListView.builder(
+          itemCount: commits.length,
+          itemBuilder: (context, i) {
+            final c = commits[i];
+            return InkWell(
+              onTap: () {
+                // Show this file as it was in the selected commit.
+                final f = state.openFile;
+                if (f != null) state.openCommitFile(c.hash, f);
+              },
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                        color: AppColors.border.withValues(alpha: 0.5)),
+                  ),
+                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 62,
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(c.shortHash,
+                          style: _mono.copyWith(
+                              color: AppColors.accentTeal, fontSize: 11.5)),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(c.subject,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.textPrimary)),
+                          const SizedBox(height: 3),
+                          Text('${c.author}  ·  ${fmt.format(c.date)}',
+                              style: TextStyle(
+                                  fontSize: 11.5, color: AppColors.textMuted)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
 // ----------------------------------------------------------- file view -------
@@ -688,7 +1179,8 @@ class _HunkBtn extends StatelessWidget {
 class _GhostBtn extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
-  const _GhostBtn(this.label, this.onTap);
+  final bool active;
+  const _GhostBtn(this.label, this.onTap, {this.active = false});
 
   @override
   Widget build(BuildContext context) {
@@ -697,7 +1189,9 @@ class _GhostBtn extends StatelessWidget {
       child: TextButton(
         onPressed: onTap,
         style: TextButton.styleFrom(
-          foregroundColor: AppColors.textSecondary,
+          foregroundColor: active ? AppColors.accent : AppColors.textSecondary,
+          backgroundColor:
+              active ? AppColors.accent.withValues(alpha: 0.12) : null,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           minimumSize: Size.zero,
         ),

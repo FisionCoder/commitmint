@@ -18,6 +18,9 @@ import '../services/storage_service.dart';
 /// Which content mode the per-file detail view is showing.
 enum FileViewMode { diff, file }
 
+/// An auxiliary read-only view layered over the open file (blame / history).
+enum FileAux { none, blame, history }
+
 /// Live state for one open repository tab.
 class RepoState extends ChangeNotifier {
   final GitRepository repo;
@@ -244,6 +247,8 @@ class RepoState extends ChangeNotifier {
   bool get openFileIsHistorical => openFileCommit != null;
 
   FileViewMode fileViewMode = FileViewMode.diff;
+  FileAux fileAux = FileAux.none;
+  bool diffSplit = false; // side-by-side vs unified diff
   bool viewStaged = false; // diff against the index (staged) vs working tree
   bool editing = false;
   bool get isFileOpen => openFile != null;
@@ -424,6 +429,7 @@ class RepoState extends ChangeNotifier {
     openFileCommit = null;
     viewStaged = f.staged;
     fileViewMode = FileViewMode.diff;
+    fileAux = FileAux.none;
     editing = false;
     notifyListeners();
   }
@@ -433,6 +439,7 @@ class RepoState extends ChangeNotifier {
     openFile = f;
     openFileCommit = commitHash;
     fileViewMode = FileViewMode.diff;
+    fileAux = FileAux.none;
     editing = false;
     notifyListeners();
   }
@@ -440,14 +447,40 @@ class RepoState extends ChangeNotifier {
   void closeFileDetail() {
     openFile = null;
     openFileCommit = null;
+    fileAux = FileAux.none;
     editing = false;
     notifyListeners();
   }
 
   void setFileViewMode(FileViewMode m) {
     fileViewMode = m;
+    fileAux = FileAux.none;
     editing = false;
     notifyListeners();
+  }
+
+  /// Switches the auxiliary view (blame / history) for the open file.
+  void setFileAux(FileAux a) {
+    fileAux = a;
+    editing = false;
+    notifyListeners();
+  }
+
+  void setDiffSplit(bool v) {
+    diffSplit = v;
+    notifyListeners();
+  }
+
+  Future<List<BlameLine>> loadBlame() {
+    final f = openFile;
+    if (f == null) return Future.value(const []);
+    return git.blame(f.path, commit: openFileCommit);
+  }
+
+  Future<List<GitCommit>> loadFileHistory() {
+    final f = openFile;
+    if (f == null) return Future.value(const []);
+    return git.fileHistory(f.path);
   }
 
   void setViewStaged(bool staged) {

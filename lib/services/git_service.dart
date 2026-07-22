@@ -66,6 +66,27 @@ class GitWorktree {
   });
 }
 
+/// One line of `git blame` output: its content plus the commit that last
+/// touched it.
+class BlameLine {
+  final String sha;
+  final String author;
+  final String summary;
+  final DateTime date;
+  final int lineNo;
+  final String content;
+  const BlameLine({
+    required this.sha,
+    required this.author,
+    required this.summary,
+    required this.date,
+    required this.lineNo,
+    required this.content,
+  });
+
+  String get shortSha => sha.length >= 7 ? sha.substring(0, 7) : sha;
+}
+
 /// A multi-step git operation that can pause on conflicts and be
 /// continued/aborted.
 enum GitOperation { none, merge, rebase, cherryPick, revert }
@@ -282,34 +303,12 @@ class GitService {
   }
 
   // ------------------------------------------------------------- commits ----
-  /// [excludeRefs] are full ref patterns (e.g. refs/heads/foo) to hide.
-  Future<List<GitCommit>> log(
-      {int limit = 400, List<String> excludeRefs = const []}) async {
-    final fmt = [
-      '%H',
-      '%P',
-      '%an',
-      '%ae',
-      '%aI',
-      '%D',
-      '%s',
-      '%b',
-    ].join(_us);
-    final r = await _run([
-      'log',
-      '--date-order',
-      for (final ref in excludeRefs) '--exclude=$ref',
-      '--branches',
-      '--remotes',
-      '--tags',
-      '-n',
-      '$limit',
-      '--pretty=format:$fmt$_rs',
-    ]);
-    if (r.exitCode != 0) return [];
+  /// Field order for the commit pretty-format used by [log]/[fileHistory].
+  static const _commitFmt = '%H\x1f%P\x1f%an\x1f%ae\x1f%aI\x1f%D\x1f%s\x1f%b';
 
+  List<GitCommit> _parseCommitRecords(String out) {
     final commits = <GitCommit>[];
-    for (final record in (r.stdout as String).split(_rs)) {
+    for (final record in out.split(_rs)) {
       final rec = record.trim();
       if (rec.isEmpty) continue;
       final f = rec.split(_us);
@@ -339,6 +338,82 @@ class GitService {
       ));
     }
     return commits;
+  }
+
+  /// [excludeRefs] are full ref patterns (e.g. refs/heads/foo) to hide.
+  Future<List<GitCommit>> log(
+      {int limit = 400, List<String> excludeRefs = const []}) async {
+    final r = await _run([
+      'log',
+      '--date-order',
+      for (final ref in excludeRefs) '--exclude=$ref',
+      '--branches',
+      '--remotes',
+      '--tags',
+      '-n',
+      '$limit',
+      '--pretty=format:$_commitFmt$_rs',
+    ]);
+    if (r.exitCode != 0) return [];
+    return _parseCommitRecords(r.stdout as String);
+  }
+
+  /// Commit history for a single file, following renames (`git log --follow`).
+  Future<List<GitCommit>> fileHistory(String path, {int limit = 200}) async {
+    final r = await _run([
+      'log',
+      '--follow',
+      '-n',
+      '$limit',
+      '--pretty=format:$_commitFmt$_rs',
+      '--',
+      path,
+    ]);
+    if (r.exitCode != 0) return [];
+    return _parseCommitRecords(r.stdout as String);
+  }
+
+  /// Per-line authorship for [path] (`git blame --line-porcelain`), optionally
+  /// as of [commit].
+  Future<List<BlameLine>> blame(String path, {String? commit}) async {
+    final args = ['blame', '--line-porcelain'];
+    if (commit != null) args.add(commit);
+    args.addAll(['--', path]);
+    final r = await _run(args);
+    if (r.exitCode != 0) return const [];
+    final out = r.stdout as String;
+    final result = <BlameLine>[];
+    final headerRe = RegExp(r'^([0-9a-f]{40}) \d+ (\d+)');
+    var sha = '';
+    var author = '';
+    var summary = '';
+    var time = 0;
+    var lineNo = 0;
+    for (final line in out.split('\n')) {
+      final m = headerRe.firstMatch(line);
+      if (m != null) {
+        sha = m.group(1)!;
+        lineNo = int.tryParse(m.group(2)!) ?? 0;
+        continue;
+      }
+      if (line.startsWith('author ')) {
+        author = line.substring('author '.length);
+      } else if (line.startsWith('author-time ')) {
+        time = int.tryParse(line.substring('author-time '.length).trim()) ?? 0;
+      } else if (line.startsWith('summary ')) {
+        summary = line.substring('summary '.length);
+      } else if (line.startsWith('\t')) {
+        result.add(BlameLine(
+          sha: sha,
+          author: author,
+          summary: summary,
+          date: DateTime.fromMillisecondsSinceEpoch(time * 1000),
+          lineNo: lineNo,
+          content: line.substring(1),
+        ));
+      }
+    }
+    return result;
   }
 
   // -------------------------------------------------------------- status ----

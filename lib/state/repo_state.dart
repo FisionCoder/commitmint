@@ -959,6 +959,14 @@ class RepoState extends ChangeNotifier {
   Future<List<GitCommit>> rebaseRange(String? base) => git.rebaseRange(base);
   Future<void> runInteractiveRebase(String? base, List<RebaseStep> plan) =>
       _runAction(() => git.runInteractiveRebase(base, plan));
+
+  /// At a rebase `edit` stop: stage any working changes, fold them into the
+  /// paused commit (amend, keep message), then continue the rebase.
+  Future<void> amendAndContinueRebase() => _runAction(() async {
+        await git.stageAll();
+        await git.amendNoEdit();
+        await git.continueOperation(GitOperation.rebase);
+      });
   Future<void> cherryPick(String sha) =>
       _runAction(() => git.cherryPick(sha));
 

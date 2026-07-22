@@ -46,6 +46,7 @@ class _InteractiveRebaseDialogState extends State<_InteractiveRebaseDialog> {
   Color _actionColor(RebaseAction a) => switch (a) {
         RebaseAction.pick => AppColors.textPrimary,
         RebaseAction.reword => AppColors.accentTeal,
+        RebaseAction.edit => AppColors.accent,
         RebaseAction.squash => AppColors.amber,
         RebaseAction.fixup => AppColors.amber,
         RebaseAction.drop => AppColors.red,
@@ -54,6 +55,7 @@ class _InteractiveRebaseDialogState extends State<_InteractiveRebaseDialog> {
   String _label(RebaseAction a) => switch (a) {
         RebaseAction.pick => 'Pick',
         RebaseAction.reword => 'Reword',
+        RebaseAction.edit => 'Edit',
         RebaseAction.squash => 'Squash',
         RebaseAction.fixup => 'Fixup',
         RebaseAction.drop => 'Drop',

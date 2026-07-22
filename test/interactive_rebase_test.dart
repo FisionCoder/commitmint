@@ -114,6 +114,36 @@ void main() {
     expect(File('$dir/f2.txt').existsSync(), true); // C3's changes kept
   });
 
+  test('edit pauses the rebase; amend folds staged changes into the commit',
+      () async {
+    final dir = await makeRepo(['C1', 'C2', 'C3']);
+    final git = GitService(dir);
+    final range = await git.rebaseRange(null);
+    final plan = [
+      RebaseStep(sha: range[0].hash, subject: 'C1', action: RebaseAction.pick),
+      RebaseStep(sha: range[1].hash, subject: 'C2', action: RebaseAction.edit),
+      RebaseStep(sha: range[2].hash, subject: 'C3', action: RebaseAction.pick),
+    ];
+    // The `edit` stop pauses the rebase, so the call throws.
+    try {
+      await git.runInteractiveRebase(null, plan);
+      fail('expected the rebase to pause at the edit stop');
+    } catch (_) {}
+    expect(await git.currentOperation(), GitOperation.rebase);
+
+    // Amend the paused commit with a new staged file, then continue.
+    File('$dir/extra.txt').writeAsStringSync('folded\n');
+    await git.stageAll();
+    await git.amendNoEdit();
+    await git.continueOperation(GitOperation.rebase);
+
+    expect(await git.currentOperation(), GitOperation.none);
+    expect(await subjects(dir), ['C1', 'C2', 'C3']);
+    // extra.txt is part of history (it was folded into C2).
+    final inC2 = await out(dir, ['log', '-1', '--name-only', '--format=', 'HEAD~1']);
+    expect(inC2.contains('extra.txt'), true);
+  });
+
   test('reorder swaps commit order', () async {
     final dir = await makeRepo(['C1', 'C2', 'C3']);
     final git = GitService(dir);

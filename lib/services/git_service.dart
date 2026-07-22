@@ -134,7 +134,7 @@ class ReflogEntry {
 }
 
 /// Per-commit action in an interactive rebase plan.
-enum RebaseAction { pick, reword, squash, fixup, drop }
+enum RebaseAction { pick, reword, edit, squash, fixup, drop }
 
 /// One step of an interactive rebase plan (a commit + what to do with it).
 class RebaseStep {
@@ -713,6 +713,12 @@ class GitService {
     return (r.stdout as String).trimRight();
   }
 
+  /// Amends the current commit keeping its message (used for the rebase `edit`
+  /// stop: fold newly-staged changes into the paused commit).
+  Future<void> amendNoEdit() =>
+      _runOrThrow(['commit', '--amend', '--no-edit', '--allow-empty'],
+          env: _noEditorEnv);
+
   Future<void> amendMessage(String message) =>
       _runOrThrow(['commit', '--amend', '-m', message]);
 
@@ -1012,6 +1018,14 @@ class GitService {
           groupOpen = true;
           groupBaseMsg = step.newMessage ?? await commitMessage(step.sha);
           groupIsReword = true;
+          break;
+        case RebaseAction.edit:
+          // git pauses after applying this commit so the user can amend it.
+          await flush();
+          todo.writeln('edit ${step.sha}');
+          groupOpen = true;
+          groupBaseMsg = await commitMessage(step.sha);
+          groupIsReword = false;
           break;
         case RebaseAction.squash:
         case RebaseAction.fixup:

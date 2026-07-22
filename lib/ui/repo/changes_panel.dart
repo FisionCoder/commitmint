@@ -104,6 +104,19 @@ class _ConflictBanner extends StatelessWidget {
                           success: '$opLabel aborted'),
                 ),
                 const SizedBox(width: 8),
+                // During a rebase `edit` stop, fold staged/working changes into
+                // the paused commit before continuing.
+                if (state.operation == GitOperation.rebase && clean) ...[
+                  _SmallButton(
+                    label: 'Amend & Continue',
+                    onTap: state.busy
+                        ? null
+                        : () => runRepoAction(
+                            context, state.amendAndContinueRebase,
+                            success: 'Amended and continued'),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 _SmallButton(
                   label: 'Continue',
                   primary: true,

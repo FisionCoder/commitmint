@@ -285,6 +285,8 @@ class _CommitGraphViewState extends State<CommitGraphView> {
                         );
                       }),
               ),
+              if (!state.hasCommitSearch && state.mayHaveMoreCommits)
+                _LoadMoreBar(state: state),
             ],
           ),
           // Separator after the Graph column (between Graph and the next column).
@@ -1361,6 +1363,37 @@ class _HighlightedText extends StatelessWidget {
 }
 
 /// Shown in the commit list area when a search matches nothing.
+/// A footer bar under the graph offering to load the next page of history.
+class _LoadMoreBar extends StatelessWidget {
+  final RepoState state;
+  const _LoadMoreBar({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: state.loadingMore ? null : state.loadMoreCommits,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          border: Border(top: BorderSide(color: AppColors.border)),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        alignment: Alignment.center,
+        child: state.loadingMore
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2))
+            : Text('Load more commits',
+                style: TextStyle(
+                    fontSize: 12.5,
+                    color: AppColors.accent,
+                    fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
+}
+
 class _NoResults extends StatelessWidget {
   const _NoResults();
 

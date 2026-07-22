@@ -13,6 +13,7 @@ import '../state/settings_state.dart';
 import '../theme/app_theme.dart';
 import 'integrations/integrations_view.dart';
 import 'launchpad/launchpad_view.dart';
+import 'repo/command_palette.dart';
 import 'repo/repo_view.dart';
 import 'settings/settings_screen.dart';
 import 'update/update_dialog.dart';
@@ -249,6 +250,12 @@ class _HomeShellState extends State<HomeShell>
           toggleCommitSearch(context),
       const SingleActivator(LogicalKeyboardKey.keyF, control: true, alt: true):
           () => toggleBranchFilter(context),
+      const SingleActivator(LogicalKeyboardKey.keyP, control: true): () {
+        final tab = app.activeTab;
+        if (tab.kind == TabKind.repo && tab.repoId != null) {
+          showCommandPalette(context, app.repoState(tab.repoId!));
+        }
+      },
       for (var n = 0; n < 9; n++)
         SingleActivator(digits[n], control: true): () =>
             app.selectTabNumber(n + 1),

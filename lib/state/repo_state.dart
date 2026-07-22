@@ -39,6 +39,25 @@ class RepoState extends ChangeNotifier {
 
   List<GitCommit> commits = [];
   List<GraphRow> graphRows = [];
+
+  /// How many commits to request from `git log` (raised by "Load more").
+  int logLimit = 400;
+  int _lastLogCount = 0;
+
+  /// Whether more history likely exists beyond what's currently loaded.
+  bool get mayHaveMoreCommits => _lastLogCount >= logLimit;
+  bool loadingMore = false;
+
+  /// Loads an additional page of history.
+  Future<void> loadMoreCommits() async {
+    if (loadingMore) return;
+    logLimit += 400;
+    loadingMore = true;
+    notifyListeners();
+    await refreshAll();
+    loadingMore = false;
+    notifyListeners();
+  }
   List<GitRef> localBranches = [];
   List<GitRef> remoteBranches = [];
   List<GitRef> tags = [];
@@ -426,7 +445,7 @@ class RepoState extends ChangeNotifier {
         git.currentBranch(),
         git.refs(),
         git.stashes(),
-        git.log(excludeRefs: hiddenRefs.toList()),
+        git.log(limit: logLimit, excludeRefs: hiddenRefs.toList()),
         git.status(),
         git.stashCommits(),
       ]);
@@ -434,6 +453,7 @@ class RepoState extends ChangeNotifier {
       final refs = results[1] as List<GitRef>;
       stashes = results[2] as List<GitRef>;
       commits = results[3] as List<GitCommit>;
+      _lastLogCount = commits.length; // raw count, before stash nodes
       final changes = results[4] as List<FileChange>;
       final stashNodes = results[5] as List<GitCommit>;
       commits = _mergeStashNodes(commits, stashNodes);

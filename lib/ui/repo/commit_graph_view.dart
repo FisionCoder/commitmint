@@ -993,11 +993,15 @@ class _CommitRowState extends State<_CommitRow> {
       // The branch to check out when this pill is double-clicked (null = not
       // checkoutable, e.g. tags or the bare HEAD pointer).
       String? checkout;
+      // Whether this pill is a local branch (a valid drag-and-drop target that
+      // can be checked out without detaching HEAD).
+      var isLocalBranch = false;
       if (ref.startsWith('HEAD -> ')) {
         name = ref.substring('HEAD -> '.length);
         color = AppColors.green;
         icon = Icons.check;
         checkout = name;
+        isLocalBranch = true;
       } else if (ref == 'HEAD') {
         color = AppColors.green;
         icon = Icons.adjust;
@@ -1012,38 +1016,145 @@ class _CommitRowState extends State<_CommitRow> {
         checkout = ref.substring(ref.indexOf('/') + 1);
       } else {
         checkout = ref; // bare local branch
+        isLocalBranch = true;
       }
       final pill = Pill(name, color: color, icon: icon, tooltip: true);
-      pills.add(Flexible(
-        child: Padding(
-          padding: const EdgeInsets.only(right: 4),
-          child: checkout == null
-              ? pill
-              // Track which branch pill the cursor is over so the row's
-              // right-click can open the branch menu for it (avoids fragile
-              // nested-gesture competition with the row's context menu).
-              : MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  // Pass the pill's full ref (e.g. `origin/feat/x`) so the
-                  // branch menu can label/act on the remote-tracking ref.
-                  onEnter: (_) => _hoverBranchRef = name,
-                  onExit: (_) {
-                    if (_hoverBranchRef == name) _hoverBranchRef = null;
-                  },
-                  child: GestureDetector(
-                    onDoubleTap: () => runRepoAction(
-                      context,
-                      () => context.read<RepoState>().checkout(checkout!),
-                      success: 'Checked out $checkout',
-                    ),
-                    child: pill,
-                  ),
+      Widget cell;
+      if (checkout == null) {
+        cell = pill;
+      } else {
+        // Track which branch pill the cursor is over so the row's right-click
+        // can open the branch menu for it (avoids fragile nested-gesture
+        // competition with the row's context menu).
+        final interactive = MouseRegion(
+          cursor: SystemMouseCursors.click,
+          // Pass the pill's full ref (e.g. `origin/feat/x`) so the branch menu
+          // can label/act on the remote-tracking ref.
+          onEnter: (_) => _hoverBranchRef = name,
+          onExit: (_) {
+            if (_hoverBranchRef == name) _hoverBranchRef = null;
+          },
+          child: GestureDetector(
+            onDoubleTap: () => runRepoAction(
+              context,
+              () => context.read<RepoState>().checkout(checkout!),
+              success: 'Checked out $checkout',
+            ),
+            child: pill,
+          ),
+        );
+        // Draggable: this pill can be dragged onto a local branch to
+        // merge/rebase/reset. Feedback is a floating copy of the pill.
+        final draggable = Draggable<_BranchDrag>(
+          data: _BranchDrag(name),
+          dragAnchorStrategy: pointerDragAnchorStrategy,
+          feedback: Material(
+            color: Colors.transparent,
+            child: Pill(name, color: color, icon: icon),
+          ),
+          childWhenDragging: Opacity(opacity: 0.4, child: interactive),
+          child: interactive,
+        );
+        // Local branches are also drop targets.
+        cell = isLocalBranch
+            ? DragTarget<_BranchDrag>(
+                onWillAcceptWithDetails: (d) => d.data.ref != name,
+                onAcceptWithDetails: (d) =>
+                    _onBranchDrop(d.data.ref, checkout!, d.offset),
+                builder: (context, cand, rejected) => Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    draggable,
+                    if (cand.isNotEmpty)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border.all(color: AppColors.accent, width: 1.5),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-        ),
+              )
+            : draggable;
+      }
+      pills.add(Flexible(
+        child: Padding(padding: const EdgeInsets.only(right: 4), child: cell),
       ));
     }
     return Row(children: pills);
   }
+
+  /// Shows the drop-action popover when branch [source] is dropped onto local
+  /// branch [target].
+  Future<void> _onBranchDrop(String source, String target, Offset pos) async {
+    if (source == target) return;
+    final state = context.read<RepoState>();
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final sel = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+          pos & const Size(1, 1), Offset.zero & overlay.size),
+      color: AppColors.surfaceRaised,
+      items: [
+        PopupMenuItem(value: 'merge', child: Text('Merge $source into $target')),
+        PopupMenuItem(
+            value: 'rebase', child: Text('Rebase $target onto $source')),
+        PopupMenuItem(
+            value: 'reset',
+            child: Text('Reset $target to $source',
+                style: TextStyle(color: AppColors.red))),
+      ],
+    );
+    if (sel == null || !mounted) return;
+    switch (sel) {
+      case 'merge':
+        return runRepoAction(context, () => state.dragMerge(target, source),
+            success: 'Merged $source into $target');
+      case 'rebase':
+        return runRepoAction(context, () => state.dragRebase(target, source),
+            success: 'Rebased $target onto $source');
+      case 'reset':
+        final ok = await _confirmReset(target, source);
+        if (ok && mounted) {
+          return runRepoAction(
+              context, () => state.dragReset(target, source, 'hard'),
+              success: 'Reset $target to $source');
+        }
+    }
+  }
+
+  Future<bool> _confirmReset(String target, String source) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Hard reset?', style: TextStyle(fontSize: 16)),
+        content: Text('Reset "$target" to "$source" and discard any changes '
+            'after it? This cannot be undone.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+}
+
+/// Payload for dragging a branch pill in the graph.
+class _BranchDrag {
+  final String ref;
+  const _BranchDrag(this.ref);
 }
 
 /// Paints the graph segment for a single commit row.

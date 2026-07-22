@@ -1034,6 +1034,24 @@ class RepoState extends ChangeNotifier {
   Future<void> moveCommitDown(String sha) =>
       _runAction(() => git.moveCommitDown(sha, currentBranch));
 
+  // ---- drag-and-drop graph operations (checkout the target branch first when
+  // it isn't the current one, then apply the op with the dragged source) ----
+  Future<void> dragMerge(String target, String source) =>
+      _runAction(() async {
+        if (target != currentBranch) await git.checkout(target);
+        await git.merge(source);
+      });
+  Future<void> dragRebase(String target, String source) =>
+      _runAction(() async {
+        if (target != currentBranch) await git.checkout(target);
+        await git.rebaseOnto(source);
+      });
+  Future<void> dragReset(String target, String source, String mode) =>
+      _runAction(() async {
+        if (target != currentBranch) await git.checkout(target);
+        await git.resetTo(source, mode);
+      });
+
   // ---- branch context-menu operations ----
   Future<void> merge(String branch) => _runAction(() => git.merge(branch));
   Future<void> rebaseOnto(String branch) =>

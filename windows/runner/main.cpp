@@ -7,6 +7,24 @@
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  // Single-instance guard: if Commit Mint is already running, bring its window
+  // to the front (restoring it from the tray / minimized state) and exit before
+  // creating a second window or tray icon. The named mutex lives for the
+  // lifetime of the primary process (the OS releases it on exit).
+  ::CreateMutexW(nullptr, TRUE, L"CommitMint.SingleInstance.Mutex");
+  if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+    HWND existing = ::FindWindowW(nullptr, L"Commit Mint");
+    if (existing != nullptr) {
+      if (::IsIconic(existing)) {
+        ::ShowWindow(existing, SW_RESTORE);
+      } else {
+        ::ShowWindow(existing, SW_SHOW);
+      }
+      ::SetForegroundWindow(existing);
+    }
+    return EXIT_SUCCESS;
+  }
+
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {

@@ -164,15 +164,14 @@ class _HomeShellState extends State<HomeShell>
     await windowManager.focus();
   }
 
-  // ---- window: minimize/close hide to the tray instead of taskbar/exit ----
-  @override
-  void onWindowMinimize() {
-    windowManager.hide();
-  }
-
+  // ---- window behaviour ----
+  // Minimize is left as the default: the window stays on the taskbar (we do NOT
+  // hide to the tray here). Only *closing* removes it from the taskbar and
+  // sends it to the notification area.
   @override
   void onWindowClose() {
-    // preventClose is enabled in main(), so closing hides to the tray.
+    // preventClose is enabled in main(), so closing hides to the tray (the
+    // window leaves the taskbar and is reachable only from the tray icon).
     windowManager.hide();
   }
 

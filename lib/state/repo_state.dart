@@ -466,7 +466,30 @@ class RepoState extends ChangeNotifier {
   bool get canCommit =>
       staged.isNotEmpty && commitSummary.trim().isNotEmpty && !busy;
 
+  // Re-entrancy guard: only one refresh body runs at a time. A refresh
+  // requested while one is running coalesces into a single follow-up pass, so
+  // overlapping triggers (a checkout's refresh + a background reload) can't
+  // interleave and assign commits/currentBranch/graphRows out of order.
+  bool _refreshing = false;
+  bool _refreshAgain = false;
+
   Future<void> refreshAll() async {
+    if (_refreshing) {
+      _refreshAgain = true;
+      return;
+    }
+    _refreshing = true;
+    try {
+      do {
+        _refreshAgain = false;
+        await _doRefresh();
+      } while (_refreshAgain);
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  Future<void> _doRefresh() async {
     loadError = null;
     // A repository whose folder was moved/deleted can't be read — surface a
     // clear error instead of throwing from the git subprocess.
@@ -956,15 +979,27 @@ class RepoState extends ChangeNotifier {
     });
   }
 
-  Future<T> _runAction<T>(Future<T> Function() action) async {
-    busy = true;
-    notifyListeners();
-    try {
-      return await action();
-    } finally {
-      busy = false;
-      await refreshAll();
-    }
+  // Serializes mutating git actions: a second action waits for the first (and
+  // its refresh) to finish before starting, so two `git` writes never run
+  // concurrently and contend on `.git/index.lock` — a common cause of
+  // intermittent checkout/commit failures under rapid clicks.
+  Future<void> _mutationLock = Future.value();
+
+  Future<T> _runAction<T>(Future<T> Function() action) {
+    final result = _mutationLock.then((_) async {
+      busy = true;
+      notifyListeners();
+      try {
+        return await action();
+      } finally {
+        busy = false;
+        await refreshAll();
+      }
+    });
+    // Keep the lock chain alive whether the action succeeds or throws (errors
+    // still propagate to the caller via [result]).
+    _mutationLock = result.then((_) {}, onError: (_) {});
+    return result;
   }
 
   /// Resolves an `Authorization: Basic …` header from the stored PAT of the

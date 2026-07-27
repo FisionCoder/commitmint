@@ -1044,11 +1044,15 @@ class _CommitRowState extends State<_CommitRow> {
             child: pill,
           ),
         );
-        // Draggable: this pill can be dragged onto a local branch to
-        // merge/rebase/reset. Feedback is a floating copy of the pill.
-        final draggable = Draggable<_BranchDrag>(
+        // Long-press to drag this pill onto a local branch (merge/rebase/reset).
+        // Using a long-press (rather than a plain Draggable) keeps single- and
+        // double-clicks free for selection/checkout — a plain drag recognizer
+        // competes with the double-tap and would intermittently steal the
+        // checkout when the pointer moved slightly during a click.
+        final draggable = LongPressDraggable<_BranchDrag>(
           data: _BranchDrag(name),
           dragAnchorStrategy: pointerDragAnchorStrategy,
+          delay: const Duration(milliseconds: 250),
           feedback: Material(
             color: Colors.transparent,
             child: Pill(name, color: color, icon: icon),

@@ -247,7 +247,6 @@ class UpdateService {
     final content = '''
 @echo off
 setlocal
-echo Waiting for Commit Mint to close...
 :waitloop
 tasklist /fi "PID eq $pid" 2>nul | find "$pid" >nul
 if not errorlevel 1 (
@@ -255,12 +254,17 @@ if not errorlevel 1 (
   goto waitloop
 )
 robocopy "$staging" "$installDir" /E /NFL /NDL /NJH /NJS /NC /NS /NP >nul
-start "" "$exePath"
-rmdir /s /q "$baseDir" 2>nul
+start "" /d "$installDir" "$exePath"
 endlocal
 ''';
     await File(script).writeAsString(content);
-    await Process.start('cmd', ['/c', script],
+    // Run the batch file with NO visible console. Launching `cmd` directly
+    // (even detached) always shows a window; wscript.exe has no console, and
+    // WshShell.Run(cmd, 0, False) runs the batch hidden (0 = hidden window).
+    final vbs = '$baseDir\\apply_update.vbs';
+    await File(vbs).writeAsString(
+        'CreateObject("WScript.Shell").Run "cmd /c ""$script""", 0, False\r\n');
+    await Process.start('wscript', ['//nologo', vbs],
         mode: ProcessStartMode.detached, runInShell: false);
   }
 

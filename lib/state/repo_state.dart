@@ -800,73 +800,61 @@ class RepoState extends ChangeNotifier {
     return git.readFileContent(f.path);
   }
 
-  Future<void> stageHunk(FileDiff diff, DiffHunk hunk) async {
-    await git.applyPatch(diff.patchFor(hunk), cached: true);
-    await _afterMutation();
-  }
+  Future<void> stageHunk(FileDiff diff, DiffHunk hunk) =>
+      _runLight(() => git.applyPatch(diff.patchFor(hunk), cached: true));
 
-  Future<void> unstageHunk(FileDiff diff, DiffHunk hunk) async {
-    await git.applyPatch(diff.patchFor(hunk), cached: true, reverse: true);
-    await _afterMutation();
-  }
+  Future<void> unstageHunk(FileDiff diff, DiffHunk hunk) => _runLight(
+      () => git.applyPatch(diff.patchFor(hunk), cached: true, reverse: true));
 
-  Future<void> discardHunk(FileDiff diff, DiffHunk hunk) async {
-    await git.applyPatch(diff.patchFor(hunk), reverse: true);
-    await _afterMutation();
-  }
+  Future<void> discardHunk(FileDiff diff, DiffHunk hunk) =>
+      _runLight(() => git.applyPatch(diff.patchFor(hunk), reverse: true));
 
   /// Stages only the [selected] lines of [hunk] (indices into hunk.lines).
-  Future<void> stageLines(
-      FileDiff diff, DiffHunk hunk, Set<int> selected) async {
-    final patch = diff.patchForLines(hunk, selected);
-    if (patch == null) return;
-    await git.applyPatch(patch, cached: true);
-    await _afterMutation();
-  }
+  Future<void> stageLines(FileDiff diff, DiffHunk hunk, Set<int> selected) =>
+      _runLight(() async {
+        final patch = diff.patchForLines(hunk, selected);
+        if (patch == null) return;
+        await git.applyPatch(patch, cached: true);
+      });
 
   /// Unstages only the [selected] lines of [hunk] (from the staged diff).
-  Future<void> unstageLines(
-      FileDiff diff, DiffHunk hunk, Set<int> selected) async {
-    final patch = diff.patchForLines(hunk, selected);
-    if (patch == null) return;
-    await git.applyPatch(patch, cached: true, reverse: true);
-    await _afterMutation();
-  }
+  Future<void> unstageLines(FileDiff diff, DiffHunk hunk, Set<int> selected) =>
+      _runLight(() async {
+        final patch = diff.patchForLines(hunk, selected);
+        if (patch == null) return;
+        await git.applyPatch(patch, cached: true, reverse: true);
+      });
 
   /// Discards only the [selected] lines of [hunk] from the working tree.
-  Future<void> discardLines(
-      FileDiff diff, DiffHunk hunk, Set<int> selected) async {
-    final patch = diff.patchForLines(hunk, selected);
-    if (patch == null) return;
-    await git.applyPatch(patch, reverse: true);
-    await _afterMutation();
-  }
+  Future<void> discardLines(FileDiff diff, DiffHunk hunk, Set<int> selected) =>
+      _runLight(() async {
+        final patch = diff.patchForLines(hunk, selected);
+        if (patch == null) return;
+        await git.applyPatch(patch, reverse: true);
+      });
 
-  Future<void> saveOpenFile(String content) async {
-    final f = openFile;
-    if (f == null) return;
-    await git.writeFileContent(f.path, content);
-    editing = false;
-    await _afterMutation();
-  }
+  Future<void> saveOpenFile(String content) => _runLight(() async {
+        final f = openFile;
+        if (f == null) return;
+        await git.writeFileContent(f.path, content);
+        editing = false;
+      });
 
   /// Writes the resolved [content] for the open conflicted file, marks it
   /// resolved (stages it), closes the detail view, and refreshes.
-  Future<void> saveResolvedFile(String content) async {
-    final f = openFile;
-    if (f == null) return;
-    await git.writeFileContent(f.path, content);
-    await git.markResolved(f.path);
-    openFile = null;
-    await _afterMutation();
-  }
+  Future<void> saveResolvedFile(String content) => _runLight(() async {
+        final f = openFile;
+        if (f == null) return;
+        await git.writeFileContent(f.path, content);
+        await git.markResolved(f.path);
+        openFile = null;
+      });
 
-  Future<void> stageOpenFile() async {
-    final f = openFile;
-    if (f == null) return;
-    await git.stage(f.path);
-    await _afterMutation();
-  }
+  Future<void> stageOpenFile() => _runLight(() async {
+        final f = openFile;
+        if (f == null) return;
+        await git.stage(f.path);
+      });
 
   void setCommitSummary(String v) {
     commitSummary = v;
@@ -891,20 +879,14 @@ class RepoState extends ChangeNotifier {
   }
 
   // --------------------------------------------- merge conflict resolution ---
-  Future<void> resolveUsingOurs(FileChange f) async {
-    await git.resolveUsingOurs(f.path);
-    await _afterMutation();
-  }
+  Future<void> resolveUsingOurs(FileChange f) =>
+      _runLight(() => git.resolveUsingOurs(f.path));
 
-  Future<void> resolveUsingTheirs(FileChange f) async {
-    await git.resolveUsingTheirs(f.path);
-    await _afterMutation();
-  }
+  Future<void> resolveUsingTheirs(FileChange f) =>
+      _runLight(() => git.resolveUsingTheirs(f.path));
 
-  Future<void> markResolved(FileChange f) async {
-    await git.markResolved(f.path);
-    await _afterMutation();
-  }
+  Future<void> markResolved(FileChange f) =>
+      _runLight(() => git.markResolved(f.path));
 
   /// Finalize the paused operation once all conflicts are resolved.
   Future<void> continueOperation() =>
@@ -914,55 +896,36 @@ class RepoState extends ChangeNotifier {
   Future<void> abortOperation() =>
       _runAction(() => git.abortOperation(operation));
 
-  Future<void> stageFile(FileChange f) async {
-    await git.stage(f.path);
-    await _afterMutation();
-  }
+  Future<void> stageFile(FileChange f) => _runLight(() => git.stage(f.path));
 
-  Future<void> unstageFile(FileChange f) async {
-    await git.unstage(f.path);
-    await _afterMutation();
-  }
+  Future<void> unstageFile(FileChange f) =>
+      _runLight(() => git.unstage(f.path));
 
-  Future<void> stageAll() async {
-    await git.stageAll();
-    await _afterMutation();
-  }
+  Future<void> stageAll() => _runLight(() => git.stageAll());
 
-  Future<void> unstageAll() async {
-    await git.unstageAll();
-    await _afterMutation();
-  }
+  Future<void> unstageAll() => _runLight(() => git.unstageAll());
 
-  Future<void> discard(FileChange f) async {
-    await git.discard(f.path);
-    await _afterMutation();
-  }
+  Future<void> discard(FileChange f) => _runLight(() => git.discard(f.path));
 
-  Future<void> discardAllChanges() async {
-    await git.discardAllChanges();
-    await _afterMutation();
-  }
+  Future<void> discardAllChanges() =>
+      _runLight(() => git.discardAllChanges());
 
   bool signoff = false;
 
-  Future<void> doCommit() async {
-    await git.commit(commitSummary,
-        description: commitDescription, amend: amend, signoff: signoff);
-    commitSummary = '';
-    commitDescription = '';
-    amend = false;
-    await refreshAll();
-  }
+  Future<void> doCommit() => _runAction(() async {
+        await git.commit(commitSummary,
+            description: commitDescription, amend: amend, signoff: signoff);
+        commitSummary = '';
+        commitDescription = '';
+        amend = false;
+      });
 
   /// The configured commit template (commit.template), or null.
   Future<String?> loadCommitTemplate() => git.commitTemplate();
 
   /// Adds [path] (or a pattern) to `.gitignore`.
-  Future<void> addToGitignore(String path) async {
-    await git.appendGitignore(path);
-    await _afterMutation();
-  }
+  Future<void> addToGitignore(String path) =>
+      _runLight(() => git.appendGitignore(path));
 
   /// Quick commit from the inline WIP row. Commits the staged files; if nothing
   /// is staged yet it stages all current changes first, so a single Enter on
@@ -979,28 +942,41 @@ class RepoState extends ChangeNotifier {
     });
   }
 
-  // Serializes mutating git actions: a second action waits for the first (and
-  // its refresh) to finish before starting, so two `git` writes never run
-  // concurrently and contend on `.git/index.lock` — a common cause of
-  // intermittent checkout/commit failures under rapid clicks.
+  // Serializes mutating git actions: a second action waits for the first to
+  // finish before starting, so two `git` writes never run concurrently and
+  // contend on `.git/index.lock` — a common cause of intermittent
+  // checkout/commit/stage failures under rapid clicks. EVERY git-mutating
+  // method must run inside [_locked] (directly, or via [_runAction] /
+  // [_runLight]); calling a `git.<mutation>` outside the lock reintroduces the
+  // race.
   Future<void> _mutationLock = Future.value();
 
-  Future<T> _runAction<T>(Future<T> Function() action) {
-    final result = _mutationLock.then((_) async {
-      busy = true;
-      notifyListeners();
-      try {
-        return await action();
-      } finally {
-        busy = false;
-        await refreshAll();
-      }
-    });
+  Future<T> _locked<T>(Future<T> Function() action) {
+    final result = _mutationLock.then((_) => action());
     // Keep the lock chain alive whether the action succeeds or throws (errors
     // still propagate to the caller via [result]).
     _mutationLock = result.then((_) {}, onError: (_) {});
     return result;
   }
+
+  /// A mutating action followed by a full graph refresh (branch/history ops).
+  Future<T> _runAction<T>(Future<T> Function() action) => _locked(() async {
+        busy = true;
+        notifyListeners();
+        try {
+          return await action();
+        } finally {
+          busy = false;
+          await refreshAll();
+        }
+      });
+
+  /// A lighter mutation (staging, resolving) that only refreshes the working
+  /// changes, keeping the open diff view stable. Serialized on the same lock.
+  Future<void> _runLight(Future<void> Function() mutation) => _locked(() async {
+        await mutation();
+        await _afterMutation();
+      });
 
   /// Resolves an `Authorization: Basic …` header from the stored PAT of the
   /// Azure DevOps instance matching this repo's remote, so pull/push/fetch
